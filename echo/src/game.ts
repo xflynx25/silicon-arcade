@@ -5,9 +5,16 @@ import { clamp, vec } from "./vec";
 
 export type GamePhase = "title" | "playing" | "waveClear" | "gameOver";
 
+type HitQuality = "perfect" | "good" | "miss";
+
 type Ring = {
   radius: number;
-  scored: boolean;
+  p1Arc: number;
+  p2Arc: number;
+  p1Hit: boolean;
+  p2Hit: boolean;
+  p1Quality: HitQuality | null;
+  p2Quality: HitQuality | null;
   hue: number;
 };
 
@@ -20,13 +27,15 @@ type HitFlash = {
 const MAX_WAVES = 5;
 const PERFECT_WINDOW_PX = 14;
 const GOOD_WINDOW_PX = 32;
+const ARC_HALF_MAX = 0.4;
+const ARC_HALF_MIN = 0.24;
 
 const HELP_BODY =
-  "Rhythm co-op — resonate with the pulsar beat.\n" +
-  "Time your hit as a ring reaches your node's track.\n" +
-  "Chain perfect hits together to ascend the waves.\n\n" +
-  "P1  ·  A/D nudge node  ·  Left Shift hit  ·  Space slow-mo\n" +
-  "P2  ·  ←/→ nudge node  ·  Right Shift hit  ·  Enter slow-mo";
+  "Rhythm co-op — each pulse ring carries two resonance arcs.\n" +
+  "Slide to your colored arc on the orbit, then hit as the ring arrives.\n" +
+  "Both players must lock their arcs to fill bloom and ascend waves.\n\n" +
+  "P1  ·  A/D slide to cyan arc  ·  Left Shift hit  ·  Space slow-mo\n" +
+  "P2  ·  ←/→ slide to magenta arc  ·  Right Shift hit  ·  Enter slow-mo";
 
 export type Game = {
   phase: GamePhase;
@@ -40,6 +49,21 @@ export type Game = {
   getHud: () => { left: string; center: string; right: string };
   getOverlay: (helpHeld: boolean) => { title: string; body: string; visible: boolean };
   getBpm: () => number;
+};
+
+const normalizeAngle = (angle: number): number => {
+  let a = angle;
+  while (a > Math.PI) {
+    a -= Math.PI * 2;
+  }
+  while (a < -Math.PI) {
+    a += Math.PI * 2;
+  }
+  return a;
+};
+
+const angleDelta = (a: number, b: number): number => {
+  return Math.abs(normalizeAngle(a - b));
 };
 
 export const createGame = (width: number, height: number): Game => {
@@ -70,13 +94,38 @@ export const createGame = (width: number, height: number): Game => {
   const particles = new ParticleSystem();
   const hitFlashes: HitFlash[] = [];
 
+  const arcHalfWidth = (): number => {
+    if (MAX_WAVES <= 1) {
+      return ARC_HALF_MAX;
+    }
+    const t = (wave - 1) / (MAX_WAVES - 1);
+    return ARC_HALF_MAX - t * (ARC_HALF_MAX - ARC_HALF_MIN);
+  };
+
   const recomputeRingSpeed = (): void => {
     const beatDuration = 60 / bpm;
     ringSpeed = orbitRadius / beatDuration;
   };
 
+  const randomArcPair = (): { p1Arc: number; p2Arc: number } => {
+    const p1Arc = Math.random() * Math.PI * 2 - Math.PI;
+    const offset = Math.PI * (0.55 + Math.random() * 0.9);
+    const p2Arc = normalizeAngle(p1Arc + offset);
+    return { p1Arc, p2Arc };
+  };
+
   const spawnRing = (): void => {
-    rings.push({ radius: 8, scored: false, hue: 270 + wave * 15 });
+    const { p1Arc, p2Arc } = randomArcPair();
+    rings.push({
+      radius: 8,
+      p1Arc,
+      p2Arc,
+      p1Hit: false,
+      p2Hit: false,
+      p1Quality: null,
+      p2Quality: null,
+      hue: 270 + wave * 15
+    });
   };
 
   const resetSession = (): void => {
@@ -100,18 +149,31 @@ export const createGame = (width: number, height: number): Game => {
   const nodePos = (angle: number) =>
     vec(cx + Math.cos(angle) * orbitRadius, cy + Math.sin(angle) * orbitRadius);
 
-  const judgeHit = (
+  const timingQuality = (ringRadius: number): HitQuality | null => {
+    const delta = Math.abs(ringRadius - orbitRadius);
+    if (delta > GOOD_WINDOW_PX) {
+      return null;
+    }
+    return delta <= PERFECT_WINDOW_PX ? "perfect" : "good";
+  };
+
+  const applyMiss = (player: 1 | 2, angle: number, hue: number, audio: AudioSystem): void => {
+    combo = 0;
+    bloom = Math.max(0, bloom - 10);
+    audio.miss();
+    shake = 4;
+    particles.emit(nodePos(angle), 6, hue, 80);
+  };
+
+  const applyHit = (
     player: 1 | 2,
-    quality: "perfect" | "good" | "miss",
+    quality: HitQuality,
     angle: number,
     hue: number,
     audio: AudioSystem
   ): void => {
     if (quality === "miss") {
-      combo = 0;
-      bloom = Math.max(0, bloom - 12);
-      audio.miss();
-      shake = 4;
+      applyMiss(player, angle, hue, audio);
       return;
     }
 
@@ -121,11 +183,30 @@ export const createGame = (width: number, height: number): Game => {
       scoreP2 += quality === "perfect" ? 2 : 1;
     }
     combo += 1;
-    bloom = clamp(bloom + (quality === "perfect" ? 14 : 7), 0, 100);
     audio.resonance(quality);
     hitFlashes.push({ angle, life: 0.5, hue });
     particles.emit(nodePos(angle), quality === "perfect" ? 24 : 12, hue, 160);
     shake = quality === "perfect" ? 6 : 3;
+  };
+
+  const resolveRingDuo = (ring: Ring, audio: AudioSystem): void => {
+    const q1 = ring.p1Quality ?? "miss";
+    const q2 = ring.p2Quality ?? "miss";
+    if (q1 === "miss" || q2 === "miss") {
+      return;
+    }
+
+    let duoBloom = 8;
+    if (q1 === "perfect" && q2 === "perfect") {
+      duoBloom = 18;
+      combo += 1;
+    } else if (q1 === "perfect" || q2 === "perfect") {
+      duoBloom = 12;
+    }
+
+    bloom = clamp(bloom + duoBloom, 0, 100);
+    pulse = 1;
+    audio.resonance("perfect");
 
     if (bloom >= 100) {
       bloom = 0;
@@ -143,30 +224,78 @@ export const createGame = (width: number, height: number): Game => {
     }
   };
 
-  const evaluateRing = (ring: Ring, p1Primary: boolean, p2Primary: boolean, audio: AudioSystem): void => {
-    if (ring.scored) {
+  const tryPlayerHit = (
+    player: 1 | 2,
+    ring: Ring,
+    pressed: boolean,
+    nodeAngle: number,
+    arcCenter: number,
+    hue: number,
+    audio: AudioSystem
+  ): void => {
+    if (!pressed) {
+      return;
+    }
+    if (player === 1 && ring.p1Hit) {
+      return;
+    }
+    if (player === 2 && ring.p2Hit) {
       return;
     }
 
-    const delta = Math.abs(ring.radius - orbitRadius);
-    if (delta > GOOD_WINDOW_PX) {
+    const timing = timingQuality(ring.radius);
+    const inArc = angleDelta(nodeAngle, arcCenter) <= arcHalfWidth();
+
+    if (timing === null) {
       return;
     }
 
-    ring.scored = true;
-    const inPerfect = delta <= PERFECT_WINDOW_PX;
-
-    if (p1Primary) {
-      judgeHit(1, inPerfect ? "perfect" : "good", nodeAngleP1, 200, audio);
-    } else {
-      judgeHit(1, "miss", nodeAngleP1, 200, audio);
+    if (!inArc) {
+      applyMiss(player, nodeAngle, hue, audio);
+      return;
     }
 
-    if (p2Primary) {
-      judgeHit(2, inPerfect ? "perfect" : "good", nodeAngleP2, 310, audio);
+    if (player === 1) {
+      ring.p1Hit = true;
+      ring.p1Quality = timing;
     } else {
-      judgeHit(2, "miss", nodeAngleP2, 310, audio);
+      ring.p2Hit = true;
+      ring.p2Quality = timing;
     }
+    applyHit(player, timing, nodeAngle, hue, audio);
+
+    if (ring.p1Hit && ring.p2Hit) {
+      resolveRingDuo(ring, audio);
+    }
+  };
+
+  const expireRing = (ring: Ring, audio: AudioSystem): void => {
+    if (!ring.p1Hit) {
+      applyMiss(1, nodeAngleP1, 200, audio);
+      ring.p1Hit = true;
+      ring.p1Quality = "miss";
+    }
+    if (!ring.p2Hit) {
+      applyMiss(2, nodeAngleP2, 310, audio);
+      ring.p2Hit = true;
+      ring.p2Quality = "miss";
+    }
+  };
+
+  const activeTargetRing = (): Ring | null => {
+    let best: Ring | null = null;
+    let bestDelta = Number.POSITIVE_INFINITY;
+    for (const ring of rings) {
+      if (ring.p1Hit && ring.p2Hit) {
+        continue;
+      }
+      const delta = Math.abs(ring.radius - orbitRadius);
+      if (delta < bestDelta) {
+        bestDelta = delta;
+        best = ring;
+      }
+    }
+    return best;
   };
 
   return {
@@ -235,8 +364,8 @@ export const createGame = (width: number, height: number): Game => {
         return;
       }
 
-      nodeAngleP1 = clamp(nodeAngleP1 + p1.x * scaledDt * 2.2, -Math.PI, Math.PI);
-      nodeAngleP2 = clamp(nodeAngleP2 + p2.x * scaledDt * 2.2, -Math.PI, Math.PI);
+      nodeAngleP1 = normalizeAngle(nodeAngleP1 + p1.x * scaledDt * 2.4);
+      nodeAngleP2 = normalizeAngle(nodeAngleP2 + p2.x * scaledDt * 2.4);
 
       if (p1.secondary && focusCooldown <= 0 && focusTimer <= 0) {
         focusTimer = 1.4;
@@ -249,11 +378,16 @@ export const createGame = (width: number, height: number): Game => {
         audio.focus();
       }
 
+      for (const ring of rings) {
+        ring.radius += ringSpeed * scaledDt;
+        tryPlayerHit(1, ring, p1.primary, nodeAngleP1, ring.p1Arc, 200, audio);
+        tryPlayerHit(2, ring, p2.primary, nodeAngleP2, ring.p2Arc, 310, audio);
+      }
+
       for (let i = rings.length - 1; i >= 0; i -= 1) {
         const ring = rings[i];
-        ring.radius += ringSpeed * scaledDt;
-        evaluateRing(ring, p1.primary, p2.primary, audio);
-        if (ring.radius > orbitRadius * 1.8) {
+        if (ring.radius > orbitRadius + GOOD_WINDOW_PX * 1.5) {
+          expireRing(ring, audio);
           rings.splice(i, 1);
         }
       }
@@ -278,14 +412,39 @@ export const createGame = (width: number, height: number): Game => {
       ctx.fillRect(0, 0, rw, rh);
 
       for (let i = 0; i < 60; i += 1) {
-        const sx = ((i * 137.5) % rw);
-        const sy = ((i * 97.3) % rh);
+        const sx = (i * 137.5) % rw;
+        const sy = (i * 97.3) % rh;
         ctx.fillStyle = `rgba(180, 120, 255, ${0.05 + (i % 5) * 0.01})`;
         ctx.fillRect(sx, sy, 2, 2);
       }
 
       ctx.save();
       ctx.globalCompositeOperation = "lighter";
+
+      const half = arcHalfWidth();
+      const targetRing = activeTargetRing();
+
+      const drawArcMarker = (
+        angle: number,
+        hue: number,
+        radius: number,
+        alpha: number,
+        width: number
+      ): void => {
+        ctx.strokeStyle = `hsla(${hue}, 100%, 65%, ${alpha})`;
+        ctx.shadowColor = `hsla(${hue}, 100%, 55%, ${alpha * 0.8})`;
+        ctx.shadowBlur = 14;
+        ctx.lineWidth = width;
+        ctx.lineCap = "round";
+        ctx.beginPath();
+        ctx.arc(cx, cy, radius, angle - half, angle + half);
+        ctx.stroke();
+      };
+
+      if (targetRing) {
+        drawArcMarker(targetRing.p1Arc, 200, orbitRadius, 0.85, 6);
+        drawArcMarker(targetRing.p2Arc, 310, orbitRadius, 0.85, 6);
+      }
 
       for (const ring of rings) {
         const t = clamp(ring.radius / orbitRadius, 0, 1.2);
@@ -296,15 +455,41 @@ export const createGame = (width: number, height: number): Game => {
         ctx.beginPath();
         ctx.arc(cx, cy, ring.radius, 0, Math.PI * 2);
         ctx.stroke();
+
+        if (Math.abs(ring.radius - orbitRadius) < GOOD_WINDOW_PX * 2) {
+          drawArcMarker(ring.p1Arc, 200, ring.radius, 0.55, 4);
+          drawArcMarker(ring.p2Arc, 310, ring.radius, 0.55, 4);
+        }
       }
 
-      ctx.strokeStyle = `rgba(200, 150, 255, 0.2)`;
+      ctx.strokeStyle = "rgba(200, 150, 255, 0.2)";
       ctx.lineWidth = 1;
       ctx.setLineDash([6, 10]);
       ctx.beginPath();
       ctx.arc(cx, cy, orbitRadius, 0, Math.PI * 2);
       ctx.stroke();
       ctx.setLineDash([]);
+
+      const drawGuide = (nodeAngle: number, arcAngle: number, hue: number): void => {
+        if (angleDelta(nodeAngle, arcAngle) <= half) {
+          return;
+        }
+        const from = nodePos(nodeAngle);
+        const to = nodePos(arcAngle);
+        ctx.strokeStyle = `hsla(${hue}, 90%, 60%, 0.25)`;
+        ctx.lineWidth = 1;
+        ctx.setLineDash([4, 6]);
+        ctx.beginPath();
+        ctx.moveTo(from.x, from.y);
+        ctx.lineTo(to.x, to.y);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      };
+
+      if (targetRing) {
+        drawGuide(nodeAngleP1, targetRing.p1Arc, 200);
+        drawGuide(nodeAngleP2, targetRing.p2Arc, 310);
+      }
 
       const drawNode = (angle: number, hue: number, label: string): void => {
         const pos = nodePos(angle);
@@ -325,11 +510,11 @@ export const createGame = (width: number, height: number): Game => {
 
       for (const flash of hitFlashes) {
         const pos = nodePos(flash.angle);
-        const t = flash.life / 0.5;
-        ctx.strokeStyle = `hsla(${flash.hue}, 100%, 70%, ${t})`;
-        ctx.lineWidth = 4 * t;
+        const flashT = flash.life / 0.5;
+        ctx.strokeStyle = `hsla(${flash.hue}, 100%, 70%, ${flashT})`;
+        ctx.lineWidth = 4 * flashT;
         ctx.beginPath();
-        ctx.arc(pos.x, pos.y, 20 + (1 - t) * 30, 0, Math.PI * 2);
+        ctx.arc(pos.x, pos.y, 20 + (1 - flashT) * 30, 0, Math.PI * 2);
         ctx.stroke();
       }
 
@@ -344,7 +529,7 @@ export const createGame = (width: number, height: number): Game => {
 
       ctx.fillStyle = "rgba(255,255,255,0.15)";
       ctx.fillRect(40, rh - 36, rw - 80, 8);
-      ctx.fillStyle = `hsla(280, 100%, 60%, 0.8)`;
+      ctx.fillStyle = "hsla(280, 100%, 60%, 0.8)";
       ctx.fillRect(40, rh - 36, ((rw - 80) * bloom) / 100, 8);
 
       if (focusTimer > 0) {

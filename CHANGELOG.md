@@ -2,6 +2,7 @@
 
 ## 2026-07-01 (continued)
 
+- **ECHO**: reworked into a real co-op rhythm game — each pulse ring spawns separate P1/P2 resonance arcs on the orbit; slide to your arc and hit on beat; both players must lock the same ring to fill bloom and ascend waves; edge-triggered hits, arc guides, and tighter wave scaling.
 - **RICOCHET**: fixed paddle contact freezing the game — ball separation after a hit was smaller than the collision radius, causing hundreds of bounces per second (audio/particle spam).
 - **POLARITY**: increased ball and player magnetic strength (~10×) and reduced ball drag so the shared core responds when ships close in and flip polarity.
 - Added three new local 2-player games: `ricochet`, `echo`, and `vortex`.

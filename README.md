@@ -25,7 +25,7 @@ pnpm dev:vortex
 | **TETHER** | Co-opetition | Spirits linked by an elastic tether — swing, slingshot, collect orbs |
 | **POLARITY** | Competitive duel | Magnetic ships flip polarity to grab and shoot a shared charged ball |
 | **RICOCHET** | Competitive duel | Tilt paddles to deflect a neon ball — smash lunge and curve spin |
-| **ECHO** | Rhythm co-op | Hit resonance on expanding pulsar rings to the beat |
+| **ECHO** | Rhythm co-op | Slide to your resonance arc, hit the pulse ring on beat — duo lock fills bloom |
 | **VORTEX** | Sumo knockout | Charge-dash ships in a shrinking arena — knock your opponent out |
 
 ## Controls
@@ -43,8 +43,10 @@ Shared across all games:
 
 ### ECHO specifics
 
-- `A/D` · `←/→` nudge your node along the ring track
-- `Shift` / `RShift` hit on the beat; `Space` / `Enter` focus slow-mo
+- Each pulse ring spawns a **cyan arc (P1)** and **magenta arc (P2)** on the orbit
+- `A/D` · `←/→` slide to your arc before the ring arrives
+- `Shift` / `RShift` hit on the beat when ring and arc align; both players must lock for bloom
+- `Space` / `Enter` focus slow-mo
 
 ### VORTEX specifics
 

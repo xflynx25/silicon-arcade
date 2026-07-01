@@ -62,22 +62,14 @@ export class InputManager {
     return {
       x: Number(isDown(this.held, "KeyD")) - Number(isDown(this.held, "KeyA")),
       y: Number(isDown(this.held, "KeyS")) - Number(isDown(this.held, "KeyW")),
-      primary: this.consumePress("ShiftLeft") || isDown(this.held, "ShiftLeft"),
-      secondary: this.consumePress("Space") || isDown(this.held, "Space")
+      primary: this.consumePress("ShiftLeft"),
+      secondary: this.consumePress("Space")
     };
   }
 
   readPlayerTwo(): PlayerInput {
-    const p2Primary =
-      this.consumePress("ShiftRight") ||
-      this.consumePress("Slash") ||
-      isDown(this.held, "ShiftRight") ||
-      isDown(this.held, "Slash");
-    const p2Secondary =
-      this.consumePress("Enter") ||
-      this.consumePress("NumpadEnter") ||
-      isDown(this.held, "Enter") ||
-      isDown(this.held, "NumpadEnter");
+    const p2Primary = this.consumePress("ShiftRight") || this.consumePress("Slash");
+    const p2Secondary = this.consumePress("Enter") || this.consumePress("NumpadEnter");
     return {
       x:
         Number(isDown(this.held, "ArrowRight")) - Number(isDown(this.held, "ArrowLeft")),
