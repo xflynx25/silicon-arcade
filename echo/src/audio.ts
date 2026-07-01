@@ -96,4 +96,11 @@ export class AudioSystem {
   ascend(): void {
     this.play({ freq: 220, duration: 0.5, type: "triangle", gain: 0.04, slideTo: 880 });
   }
+
+  jam(): void {
+    this.play({ freq: 520, duration: 0.35, type: "square", gain: 0.04, slideTo: 90 });
+    window.setTimeout(() => {
+      this.play({ freq: 140, duration: 0.2, type: "sawtooth", gain: 0.03, slideTo: 70 });
+    }, 60);
+  }
 }

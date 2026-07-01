@@ -38,14 +38,19 @@ const RING_TRAVEL_BEATS = 3.5;
 const SPAWN_EVERY_N_BEATS = 2;
 const SLIDE_SPEED = 4.8;
 const ARC_SPAWN_MAX_OFFSET = Math.PI * 0.55;
+const AUTO_TEMPO_INTERVAL = 15;
+const STUN_DURATION = 2.5;
+const JAM_CHARGE_PER_HIT = 0.25;
+const JAM_CHARGE_MAX = 1;
 
 const HELP_BODY =
   "Rhythm co-op — each pulse ring carries two resonance arcs.\n" +
   "Slide to your colored arc on the orbit, then hit as the ring arrives.\n" +
   "Both players must lock their arcs to fill bloom and ascend waves.\n\n" +
-  "P1  ·  A/D slide to cyan arc  ·  Left Shift hit  ·  Space slow-mo\n" +
-  "P2  ·  ←/→ slide to magenta arc  ·  Right Shift hit  ·  Enter slow-mo\n" +
-  "Title  ·  [ ] adjust tempo";
+  "P1  ·  A/D slide to cyan arc  ·  Left Shift hit  ·  Space slow-mo  ·  E jam P2\n" +
+  "P2  ·  ←/→ slide to magenta arc  ·  Right Shift hit  ·  Enter slow-mo  ·  . jam P1\n" +
+  "Land hits to charge Jam — fire it to stun your rival for a few beats.\n" +
+  "Any time  ·  [ ] adjust tempo  ·  T auto-tempo (drifts every 15s)";
 
 export type Game = {
   phase: GamePhase;
@@ -61,6 +66,8 @@ export type Game = {
   getBpm: () => number;
   getBaseBpm: () => number;
   adjustBaseBpm: (delta: number) => void;
+  toggleAutoTempo: () => void;
+  isAutoTempo: () => boolean;
 };
 
 const normalizeAngle = (angle: number): number => {
@@ -103,6 +110,13 @@ export const createGame = (width: number, height: number): Game => {
   let waveTimer = 0;
   let shake = 0;
   let pulse = 0;
+  let autoTempo = false;
+  let autoTempoTimer = AUTO_TEMPO_INTERVAL;
+  let autoTempoDir = 1;
+  let stunP1 = 0;
+  let stunP2 = 0;
+  let jamP1 = 0;
+  let jamP2 = 0;
 
   const rings: Ring[] = [];
   const particles = new ParticleSystem();
@@ -119,6 +133,15 @@ export const createGame = (width: number, height: number): Game => {
   const syncWaveBpm = (): void => {
     bpm = baseBpm + (wave - 1) * WAVE_BPM_STEP;
     recomputeRingSpeed();
+  };
+
+  const changeBaseBpm = (delta: number): void => {
+    baseBpm = clamp(baseBpm + delta, MIN_BASE_BPM, MAX_BASE_BPM);
+    if (phase === "playing" || phase === "waveClear") {
+      syncWaveBpm();
+    } else {
+      bpm = baseBpm;
+    }
   };
 
   const recomputeRingSpeed = (): void => {
@@ -158,6 +181,12 @@ export const createGame = (width: number, height: number): Game => {
     focusTimer = 0;
     focusCooldown = 0;
     timeScale = 1;
+    stunP1 = 0;
+    stunP2 = 0;
+    jamP1 = 0;
+    jamP2 = 0;
+    autoTempoTimer = AUTO_TEMPO_INTERVAL;
+    autoTempoDir = 1;
     rings.length = 0;
     hitFlashes.length = 0;
     syncWaveBpm();
@@ -195,10 +224,13 @@ export const createGame = (width: number, height: number): Game => {
       return;
     }
 
+    const charge = quality === "perfect" ? JAM_CHARGE_PER_HIT * 1.5 : JAM_CHARGE_PER_HIT;
     if (player === 1) {
       scoreP1 += quality === "perfect" ? 2 : 1;
+      jamP1 = clamp(jamP1 + charge, 0, JAM_CHARGE_MAX);
     } else {
       scoreP2 += quality === "perfect" ? 2 : 1;
+      jamP2 = clamp(jamP2 + charge, 0, JAM_CHARGE_MAX);
     }
     combo += 1;
     audio.resonance(quality);
@@ -253,10 +285,10 @@ export const createGame = (width: number, height: number): Game => {
     if (!pressed) {
       return;
     }
-    if (player === 1 && ring.p1Hit) {
+    if (player === 1 && (ring.p1Hit || stunP1 > 0)) {
       return;
     }
-    if (player === 2 && ring.p2Hit) {
+    if (player === 2 && (ring.p2Hit || stunP2 > 0)) {
       return;
     }
 
@@ -315,6 +347,26 @@ export const createGame = (width: number, height: number): Game => {
     return best;
   };
 
+  const fireJam = (player: 1 | 2, audio: AudioSystem): void => {
+    if (player === 1) {
+      if (jamP1 < JAM_CHARGE_MAX || stunP2 > 0) {
+        return;
+      }
+      jamP1 = 0;
+      stunP2 = STUN_DURATION;
+      particles.emit(nodePos(nodeAngleP2), 22, 310, 220);
+    } else {
+      if (jamP2 < JAM_CHARGE_MAX || stunP1 > 0) {
+        return;
+      }
+      jamP2 = 0;
+      stunP1 = STUN_DURATION;
+      particles.emit(nodePos(nodeAngleP1), 22, 200, 220);
+    }
+    audio.jam();
+    shake = 7;
+  };
+
   return {
     get phase() {
       return phase;
@@ -329,12 +381,16 @@ export const createGame = (width: number, height: number): Game => {
     },
 
     adjustBaseBpm(delta: number): void {
-      baseBpm = clamp(baseBpm + delta, MIN_BASE_BPM, MAX_BASE_BPM);
-      if (phase === "playing" || phase === "waveClear") {
-        syncWaveBpm();
-      } else {
-        bpm = baseBpm;
-      }
+      changeBaseBpm(delta);
+    },
+
+    toggleAutoTempo(): void {
+      autoTempo = !autoTempo;
+      autoTempoTimer = AUTO_TEMPO_INTERVAL;
+    },
+
+    isAutoTempo(): boolean {
+      return autoTempo;
     },
 
     onBeat(): void {

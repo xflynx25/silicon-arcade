@@ -14,12 +14,14 @@ export type PlayerInput = {
   y: number;
   primary: boolean;
   secondary: boolean;
+  jam: boolean;
 };
 
 export type GlobalInput = {
   startPressed: boolean;
   restartPressed: boolean;
   tempoDelta: number;
+  autoTempoToggle: boolean;
 };
 
 const isDown = (set: Set<string>, code: string): boolean => set.has(code);
@@ -58,6 +60,7 @@ export class InputManager {
     const startPressed =
       this.consumePress("Enter") || this.consumePress("NumpadEnter");
     const restartPressed = this.consumePress("KeyR");
+    const autoTempoToggle = this.consumePress("KeyT");
     let tempoDelta = 0;
     if (
       this.consumePress("BracketLeft") ||
@@ -72,7 +75,7 @@ export class InputManager {
     ) {
       tempoDelta = BPM_STEP;
     }
-    return { startPressed, restartPressed, tempoDelta };
+    return { startPressed, restartPressed, tempoDelta, autoTempoToggle };
   }
 
   readPlayerOne(): PlayerInput {
@@ -80,7 +83,8 @@ export class InputManager {
       x: Number(isDown(this.held, "KeyD")) - Number(isDown(this.held, "KeyA")),
       y: Number(isDown(this.held, "KeyS")) - Number(isDown(this.held, "KeyW")),
       primary: this.consumePress("ShiftLeft"),
-      secondary: this.consumePress("Space")
+      secondary: this.consumePress("Space"),
+      jam: this.consumePress("KeyE")
     };
   }
 
@@ -92,7 +96,8 @@ export class InputManager {
         Number(isDown(this.held, "ArrowRight")) - Number(isDown(this.held, "ArrowLeft")),
       y: Number(isDown(this.held, "ArrowDown")) - Number(isDown(this.held, "ArrowUp")),
       primary: p2Primary,
-      secondary: p2Secondary
+      secondary: p2Secondary,
+      jam: this.consumePress("Period")
     };
   }
 

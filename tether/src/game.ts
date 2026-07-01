@@ -114,15 +114,21 @@ export class TetherGame {
 
   update(dt: number): void {
     const global = this.input.consumeGlobal();
+    if (this.mode !== "playing") {
+      if (this.input.consumePress("Digit1")) this.difficulty = "easy";
+      if (this.input.consumePress("Digit2")) this.difficulty = "normal";
+      if (this.input.consumePress("Digit3")) this.difficulty = "hard";
+    }
     if (this.mode !== "playing" && (global.startPressed || global.restartPressed)) {
       this.audio.initOnGesture();
       this.resetRound();
     }
 
     if (this.mode !== "playing") {
+      const diffLabel = DIFFICULTIES[this.difficulty].label;
       this.hud.setHud({
         left: "TETHER",
-        center: "Press Enter to launch",
+        center: `Difficulty: ${diffLabel}`,
         right: "WASD + Arrows"
       });
       this.hud.setOverlay({
@@ -130,17 +136,26 @@ export class TetherGame {
         title: this.mode === "ended" ? "Run Complete" : "TETHER",
         body:
           this.mode === "ended"
-            ? `Survived ${this.time.toFixed(1)}s\nP1 Light ${this.players[0].score} | P2 Light ${this.players[1].score}\nPress Enter or R to play again`
-            : HELP_BODY + "\n\nEnter to launch  ·  R to restart  ·  Hold H for help"
+            ? `Survived ${this.time.toFixed(1)}s on ${diffLabel}\nP1 Light ${this.players[0].score} | P2 Light ${this.players[1].score}\n1/2/3 change difficulty  ·  Enter or R to play again`
+            : HELP_BODY +
+              `\n\nDifficulty: ${diffLabel}  (press 1 Easy · 2 Normal · 3 Hard)\nEnter to launch  ·  R to restart  ·  Hold H for help`
       });
       this.input.endFrame();
       return;
     }
 
+    const cfg = DIFFICULTIES[this.difficulty];
     this.elapsed += dt;
     this.time += dt;
     this.wave = 1 + Math.floor(this.time / 25);
-    this.stability = Math.max(0, this.stability - dt * (1.5 + this.wave * 0.12));
+    this.stability = Math.max(0, this.stability - dt * (1.5 + this.wave * 0.12) * cfg.drain);
+
+    // Spirits swell as the run goes on — a bigger, easier target. Eating light
+    // is the only way to shrink back down. Growth accelerates with the wave.
+    const growth = (2.6 + this.wave * 0.5) * cfg.growth;
+    for (const player of this.players) {
+      player.radius = Math.min(MAX_RADIUS, player.radius + growth * dt);
+    }
 
     const p1Input = this.input.readPlayerOne();
     const p2Input = this.input.readPlayerTwo();
@@ -170,7 +185,7 @@ export class TetherGame {
 
     this.hud.setHud({
       left: `P1 ${this.players[0].score}`,
-      center: `Stability ${this.stability.toFixed(0)}% | Wave ${this.wave}`,
+      center: `Stability ${this.stability.toFixed(0)}% | Wave ${this.wave} | ${DIFFICULTIES[this.difficulty].label}`,
       right: `P2 ${this.players[1].score}`
     });
     if (this.input.isHeld("KeyH")) {
@@ -280,21 +295,27 @@ export class TetherGame {
       ) {
         this.players[0].score += 3;
         this.players[1].score += 3;
+        // A shared prism shrinks both spirits — a big reprieve for teamwork.
+        this.players[0].radius = Math.max(MIN_RADIUS, this.players[0].radius - 7);
+        this.players[1].radius = Math.max(MIN_RADIUS, this.players[1].radius - 7);
         this.audio.collect();
-        this.particles.emit(orb.pos, 24, orb.hue, 160);
+        this.particles.emit(orb.pos, 18, orb.hue, 160);
         this.orbs.splice(i, 1);
       }
     }
   }
 
   private spawnAndUpdateHazards(dt: number): void {
+    const cfg = DIFFICULTIES[this.difficulty];
     this.hazardTimer -= dt;
-    if (this.hazardTimer <= 0 && this.hazards.length < 3 + this.wave) {
-      this.hazardTimer = Math.max(1.3, 3.4 - this.wave * 0.17);
+    const maxHazards = Math.round((4 + this.wave * 1.5) * cfg.hazardCount);
+    if (this.hazardTimer <= 0 && this.hazards.length < maxHazards) {
+      this.hazardTimer = Math.max(0.7, (2.6 - this.wave * 0.18) / cfg.hazardCount);
+      const speed = (110 + this.wave * 20) * cfg.hazardSpeed;
       this.hazards.push({
         pos: vec(Math.random() * this.world.width, Math.random() * this.world.height),
-        vel: vec((Math.random() - 0.5) * (70 + this.wave * 14), (Math.random() - 0.5) * (70 + this.wave * 14)),
-        radius: 22 + Math.random() * 16
+        vel: vec((Math.random() - 0.5) * speed, (Math.random() - 0.5) * speed),
+        radius: (30 + Math.random() * 22 + this.wave * 2) * cfg.hazardSize
       });
     }
 
@@ -320,24 +341,20 @@ export class TetherGame {
       const d2 = dist(orb.pos, this.players[1].pos);
 
       if (orb.kind === "light") {
-        if (d1 < orb.radius + 15) {
-          this.players[0].score += 1;
-          this.particles.emit(orb.pos, 14, orb.hue, 140);
-          this.audio.collect();
+        if (d1 < orb.radius + this.players[0].radius) {
+          this.eatLight(this.players[0], orb);
           this.orbs.splice(i, 1);
           continue;
         }
-        if (d2 < orb.radius + 15) {
-          this.players[1].score += 1;
-          this.particles.emit(orb.pos, 14, orb.hue, 140);
-          this.audio.collect();
+        if (d2 < orb.radius + this.players[1].radius) {
+          this.eatLight(this.players[1], orb);
           this.orbs.splice(i, 1);
         }
       } else {
-        if (d1 < orb.radius + 16) {
+        if (d1 < orb.radius + this.players[0].radius) {
           orb.touchP1At = now;
         }
-        if (d2 < orb.radius + 16) {
+        if (d2 < orb.radius + this.players[1].radius) {
           orb.touchP2At = now;
         }
         if (
@@ -351,16 +368,25 @@ export class TetherGame {
     }
   }
 
+  private eatLight(player: Player, orb: Orb): void {
+    player.score += 1;
+    // Eating light is how you shed size and stay a small, hard target.
+    player.radius = Math.max(MIN_RADIUS, player.radius - 4);
+    this.particles.emit(orb.pos, 10, orb.hue, 140);
+    this.audio.collect();
+  }
+
   private checkPlayerHazards(dt: number): void {
+    const cfg = DIFFICULTIES[this.difficulty];
     for (const hazard of this.hazards) {
       for (const player of this.players) {
         const d = dist(hazard.pos, player.pos);
-        const touch = hazard.radius + 14;
+        const touch = hazard.radius + player.radius;
         if (d < touch) {
           const push = normalize(sub(player.pos, hazard.pos));
           player.vel.x += push.x * 320 * dt;
           player.vel.y += push.y * 320 * dt;
-          this.stability = Math.max(0, this.stability - dt * 28);
+          this.stability = Math.max(0, this.stability - dt * 28 * cfg.drain);
           this.shake = Math.max(this.shake, 7);
           this.particles.emit(player.pos, 6, 0, 120);
           this.audio.danger();
@@ -412,12 +438,13 @@ export class TetherGame {
     ctx.globalCompositeOperation = "lighter";
     for (const player of this.players) {
       const n = player.trail.length;
+      const trailScale = player.radius * 0.85;
       for (let i = 0; i < n; i += 1) {
         const t = (i + 1) / n;
         const p = player.trail[i];
         ctx.fillStyle = `hsla(${player.hue}, 100%, 62%, ${t * 0.4})`;
         ctx.beginPath();
-        ctx.arc(p.x, p.y, 11 * t, 0, Math.PI * 2);
+        ctx.arc(p.x, p.y, trailScale * t, 0, Math.PI * 2);
         ctx.fill();
       }
     }
@@ -433,7 +460,7 @@ export class TetherGame {
       ctx.shadowColor = `hsl(${player.hue} 100% 65%)`;
       ctx.shadowBlur = 24;
       ctx.beginPath();
-      ctx.arc(player.pos.x, player.pos.y, 13, 0, Math.PI * 2);
+      ctx.arc(player.pos.x, player.pos.y, player.radius, 0, Math.PI * 2);
       ctx.fill();
       ctx.restore();
     }
