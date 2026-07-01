@@ -4,6 +4,12 @@ import { ParticleSystem } from "./particles";
 import { Hud } from "./ui";
 import { clamp, dist, len, normalize, sub, vec, type Vec } from "./vec";
 
+const HELP_BODY =
+  "Magnetic duel — bend the shared charged core\n" +
+  "into your rival's gate. First to 5 wins.\n\n" +
+  "P1  ·  W A S D move  ·  Left Shift flip polarity  ·  Space dash\n" +
+  "P2  ·  Arrow keys move  ·  Right Shift flip  ·  Enter dash";
+
 type Player = {
   pos: Vec;
   vel: Vec;
@@ -116,7 +122,7 @@ export class PolarityGame {
         body:
           this.mode === "ended"
             ? `P1 ${this.players[0].score} - ${this.players[1].score} P2\nPress Enter or R for rematch`
-            : "Flip polarity with Shift.\nDash with Space / Enter.\nAttract then repel the charged core into your rival's gate."
+            : HELP_BODY + "\n\nEnter to start  ·  R to restart  ·  Hold H for help"
       });
       this.input.endFrame();
       return;
@@ -151,7 +157,15 @@ export class PolarityGame {
       center: `Time ${this.timeLeft.toFixed(0)}s`,
       right: `P2 ${this.players[1].score} (${p2Polarity})`
     });
-    this.hud.setOverlay({ visible: false, title: "", body: "" });
+    if (this.input.isHeld("KeyH")) {
+      this.hud.setOverlay({
+        visible: true,
+        title: "HOW TO PLAY",
+        body: HELP_BODY + "\n\nRelease H to resume"
+      });
+    } else {
+      this.hud.setOverlay({ visible: false, title: "", body: "" });
+    }
     this.input.endFrame();
   }
 

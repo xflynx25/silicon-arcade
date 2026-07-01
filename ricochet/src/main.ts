@@ -66,7 +66,7 @@ createFixedLoop({
     game.update(dt, p1, p2, audio);
 
     hud.setHud(game.getHud());
-    hud.setOverlay(game.getOverlay());
+    hud.setOverlay(game.getOverlay(input.isHeld("KeyH")));
     input.endFrame();
   },
   render(): void {

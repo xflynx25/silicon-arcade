@@ -95,6 +95,10 @@ export class InputManager {
     return true;
   }
 
+  isHeld(code: string): boolean {
+    return this.held.has(code);
+  }
+
   endFrame(): void {
     this.pressed.clear();
   }

@@ -34,7 +34,7 @@ Shared across all games:
 
 - **Player 1:** `W A S D` move, `Left Shift` primary, `Space` secondary
 - **Player 2:** `Arrow keys` move, `Right Shift` (or `/`) primary, `Enter` secondary
-- **Global:** `Enter` start, `R` restart
+- **Global:** `Enter` start, `R` restart, hold `H` for the in-game How to Play card
 
 ### RICOCHET specifics
 

@@ -105,6 +105,10 @@ export class InputManager {
     return this.consumeRelease("ShiftRight") || this.consumeRelease("Slash");
   }
 
+  isHeld(code: string): boolean {
+    return this.held.has(code);
+  }
+
   endFrame(): void {
     this.pressed.clear();
     this.released.clear();

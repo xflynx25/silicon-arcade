@@ -4,6 +4,13 @@ import { ParticleSystem } from "./particles";
 import { Hud } from "./ui";
 import { clamp, dist, len, normalize, sub, vec, type Vec } from "./vec";
 
+const HELP_BODY =
+  "Co-op — two spirits bound by an elastic tether.\n" +
+  "Swing and slingshot to collect light, grab prism\n" +
+  "pickups together, and dodge the dark voids.\n\n" +
+  "P1  ·  W A S D move  ·  Left Shift reel tether\n" +
+  "P2  ·  Arrow keys move  ·  Right Shift reel tether";
+
 type Player = {
   pos: Vec;
   vel: Vec;
@@ -98,7 +105,7 @@ export class TetherGame {
         body:
           this.mode === "ended"
             ? `Survived ${this.time.toFixed(1)}s\nP1 Light ${this.players[0].score} | P2 Light ${this.players[1].score}\nPress Enter or R to play again`
-            : "Two spirits are bound by light.\nReel the tether with Shift to sling each other.\nCollect light, sync prism pickups, dodge voids."
+            : HELP_BODY + "\n\nEnter to launch  ·  R to restart  ·  Hold H for help"
       });
       this.input.endFrame();
       return;
@@ -140,7 +147,15 @@ export class TetherGame {
       center: `Stability ${this.stability.toFixed(0)}% | Wave ${this.wave}`,
       right: `P2 ${this.players[1].score}`
     });
-    this.hud.setOverlay({ visible: false, title: "", body: "" });
+    if (this.input.isHeld("KeyH")) {
+      this.hud.setOverlay({
+        visible: true,
+        title: "HOW TO PLAY",
+        body: HELP_BODY + "\n\nRelease H to resume"
+      });
+    } else {
+      this.hud.setOverlay({ visible: false, title: "", body: "" });
+    }
     this.input.endFrame();
   }
 

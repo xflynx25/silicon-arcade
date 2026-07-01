@@ -21,6 +21,13 @@ const MAX_WAVES = 4;
 const PERFECT_WINDOW_PX = 14;
 const GOOD_WINDOW_PX = 32;
 
+const HELP_BODY =
+  "Rhythm co-op — resonate with the pulsar beat.\n" +
+  "Time your hit as a ring reaches your node's track.\n" +
+  "Chain perfect hits together to ascend the waves.\n\n" +
+  "P1  ·  A/D nudge node  ·  Left Shift hit  ·  Space slow-mo\n" +
+  "P2  ·  ←/→ nudge node  ·  Right Shift hit  ·  Enter slow-mo";
+
 export type Game = {
   phase: GamePhase;
   resize: (w: number, h: number) => void;
@@ -31,7 +38,7 @@ export type Game = {
   render: (ctx: CanvasRenderingContext2D, w: number, h: number, alpha: number) => void;
   applyShake: (ctx: CanvasRenderingContext2D) => void;
   getHud: () => { left: string; center: string; right: string };
-  getOverlay: () => { title: string; body: string; visible: boolean };
+  getOverlay: (helpHeld: boolean) => { title: string; body: string; visible: boolean };
   getBpm: () => number;
 };
 
@@ -361,15 +368,11 @@ export const createGame = (width: number, height: number): Game => {
       };
     },
 
-    getOverlay(): { title: string; body: string; visible: boolean } {
+    getOverlay(helpHeld: boolean): { title: string; body: string; visible: boolean } {
       if (phase === "title") {
         return {
           title: "ECHO",
-          body:
-            "Resonate with the pulsar beat.\n" +
-            "A/D · ←/→ nudge your node. Shift · RShift = hit on the ring.\n" +
-            "Space · Enter = focus slow-mo (cooldown).\n\n" +
-            "Chain perfect hits to ascend waves. Press Enter to start.",
+          body: HELP_BODY + "\n\nEnter to start  ·  R to restart  ·  Hold H for help",
           visible: true
         };
       }
@@ -382,6 +385,13 @@ export const createGame = (width: number, height: number): Game => {
             `${winner} led with ${Math.max(scoreP1, scoreP2)} pts\n` +
             `P1: ${scoreP1} · P2: ${scoreP2}\n` +
             "Press R to restart.",
+          visible: true
+        };
+      }
+      if (helpHeld) {
+        return {
+          title: "HOW TO PLAY",
+          body: HELP_BODY + "\n\nRelease H to resume",
           visible: true
         };
       }

@@ -39,8 +39,14 @@ export type Game = {
   render: (ctx: CanvasRenderingContext2D, w: number, h: number, alpha: number) => void;
   applyShake: (ctx: CanvasRenderingContext2D) => void;
   getHud: () => { left: string; center: string; right: string };
-  getOverlay: () => { title: string; body: string; visible: boolean };
+  getOverlay: (helpHeld: boolean) => { title: string; body: string; visible: boolean };
 };
+
+const HELP_BODY =
+  "Competitive duel — deflect the neon ball past\n" +
+  "your rival's side. First to 5 wins.\n\n" +
+  "P1  ·  W/S slide  ·  A/D tilt  ·  Left Shift smash  ·  Space spin\n" +
+  "P2  ·  ↑/↓ slide  ·  ←/→ tilt  ·  Right Shift smash  ·  Enter spin";
 
 const paddleEndpoints = (
   paddle: Paddle,
@@ -404,14 +410,11 @@ export const createGame = (width: number, height: number): Game => {
       };
     },
 
-    getOverlay(): { title: string; body: string; visible: boolean } {
+    getOverlay(helpHeld: boolean): { title: string; body: string; visible: boolean } {
       if (phase === "title") {
         return {
           title: "RICOCHET",
-          body:
-            "Tilt paddles (A/D · ←/→), slide (W/S · ↑/↓).\n" +
-            "Shift = smash lunge · Space/Enter = curve spin.\n\n" +
-            "First to 5 wins. Press Enter to start.",
+          body: HELP_BODY + "\n\nEnter to start  ·  R to restart  ·  Hold H for help",
           visible: true
         };
       }
@@ -419,6 +422,13 @@ export const createGame = (width: number, height: number): Game => {
         return {
           title: `PLAYER ${winner} WINS`,
           body: `Final score ${scoreP1} — ${scoreP2}\nPress R to restart.`,
+          visible: true
+        };
+      }
+      if (helpHeld) {
+        return {
+          title: "HOW TO PLAY",
+          body: HELP_BODY + "\n\nRelease H to resume",
           visible: true
         };
       }
