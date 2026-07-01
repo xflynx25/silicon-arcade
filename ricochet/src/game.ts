@@ -352,6 +352,17 @@ export const createGame = (width: number, height: number): Game => {
       ctx.fillStyle = "rgba(60, 200, 255, 0.25)";
       ctx.fillRect(rightWall + GOAL_DEPTH, top, rw - rightWall - GOAL_DEPTH, bottom - top);
 
+      ctx.save();
+      ctx.strokeStyle = "rgba(255,255,255,0.12)";
+      ctx.lineWidth = 2;
+      ctx.setLineDash([10, 14]);
+      ctx.beginPath();
+      ctx.moveTo(rw * 0.5, top);
+      ctx.lineTo(rw * 0.5, bottom);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.restore();
+
       const drawPaddle = (paddle: Paddle, wallX: number): void => {
         const seg = paddleEndpoints(paddle, wallX, paddle.smash * 22);
         ctx.save();

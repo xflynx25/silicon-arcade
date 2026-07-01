@@ -17,7 +17,7 @@ type HitFlash = {
   hue: number;
 };
 
-const MAX_WAVES = 4;
+const MAX_WAVES = 5;
 const PERFECT_WINDOW_PX = 14;
 const GOOD_WINDOW_PX = 32;
 

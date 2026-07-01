@@ -16,6 +16,7 @@ type Player = {
   vel: Vec;
   hue: number;
   score: number;
+  trail: Vec[];
 };
 
 type Orb = {
@@ -49,8 +50,8 @@ export class TetherGame {
   private shake = 0;
   private restLength = 170;
   private readonly players: [Player, Player] = [
-    { pos: vec(520, 360), vel: vec(0, 0), hue: 186, score: 0 },
-    { pos: vec(760, 360), vel: vec(0, 0), hue: 328, score: 0 }
+    { pos: vec(520, 360), vel: vec(0, 0), hue: 186, score: 0, trail: [] },
+    { pos: vec(760, 360), vel: vec(0, 0), hue: 328, score: 0, trail: [] }
   ];
   private readonly orbs: Orb[] = [];
   private readonly hazards: Hazard[] = [];
@@ -82,8 +83,8 @@ export class TetherGame {
     this.restLength = 170;
     this.orbs.length = 0;
     this.hazards.length = 0;
-    this.players[0] = { pos: vec(this.world.width * 0.42, this.world.height * 0.5), vel: vec(), hue: 186, score: 0 };
-    this.players[1] = { pos: vec(this.world.width * 0.58, this.world.height * 0.5), vel: vec(), hue: 328, score: 0 };
+    this.players[0] = { pos: vec(this.world.width * 0.42, this.world.height * 0.5), vel: vec(), hue: 186, score: 0, trail: [] };
+    this.players[1] = { pos: vec(this.world.width * 0.58, this.world.height * 0.5), vel: vec(), hue: 328, score: 0, trail: [] };
   }
 
   update(dt: number): void {
@@ -202,6 +203,10 @@ export class TetherGame {
       }
       player.pos.x = clamp(player.pos.x, pad, this.world.width - pad);
       player.pos.y = clamp(player.pos.y, pad, this.world.height - pad);
+      player.trail.push(vec(player.pos.x, player.pos.y));
+      if (player.trail.length > 16) {
+        player.trail.shift();
+      }
     }
   }
 
@@ -350,6 +355,7 @@ export class TetherGame {
     this.drawOrbs();
     this.drawHazards();
     this.drawTether();
+    this.drawTrails();
     this.drawPlayers();
     this.particles.render(ctx);
 
@@ -373,6 +379,24 @@ export class TetherGame {
       ctx.lineTo(x, this.world.height);
       ctx.stroke();
     }
+  }
+
+  private drawTrails(): void {
+    const { ctx } = this;
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    for (const player of this.players) {
+      const n = player.trail.length;
+      for (let i = 0; i < n; i += 1) {
+        const t = (i + 1) / n;
+        const p = player.trail[i];
+        ctx.fillStyle = `hsla(${player.hue}, 100%, 62%, ${t * 0.4})`;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 11 * t, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+    ctx.restore();
   }
 
   private drawPlayers(): void {

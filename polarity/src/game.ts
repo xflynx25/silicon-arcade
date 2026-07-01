@@ -255,6 +255,15 @@ export class PolarityGame {
   private integrateBall(dt: number): void {
     this.ball.vel.x *= 0.994;
     this.ball.vel.y *= 0.994;
+
+    const maxSpeed = 900;
+    const speed = len(this.ball.vel);
+    if (speed > maxSpeed) {
+      const s = maxSpeed / speed;
+      this.ball.vel.x *= s;
+      this.ball.vel.y *= s;
+    }
+
     this.ball.pos.x += this.ball.vel.x * dt;
     this.ball.pos.y += this.ball.vel.y * dt;
 

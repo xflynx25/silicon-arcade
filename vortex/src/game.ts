@@ -16,6 +16,7 @@ type Ship = {
   parry: number;
   hue: number;
   dashDir: Vec;
+  trail: Vec[];
 };
 
 type Hazard = {
@@ -127,7 +128,8 @@ export const createGame = (width: number, height: number): Game => {
     charge: 0,
     parry: 0,
     hue: 175,
-    dashDir: vec(1, 0)
+    dashDir: vec(1, 0),
+    trail: []
   };
   const ship2: Ship = {
     pos: vec(0, 0),
@@ -135,7 +137,8 @@ export const createGame = (width: number, height: number): Game => {
     charge: 0,
     parry: 0,
     hue: 15,
-    dashDir: vec(-1, 0)
+    dashDir: vec(-1, 0),
+    trail: []
   };
 
   const resetShips = (): void => {
@@ -149,6 +152,8 @@ export const createGame = (width: number, height: number): Game => {
     ship2.parry = 0;
     ship1.dashDir = vec(1, 0);
     ship2.dashDir = vec(-1, 0);
+    ship1.trail = [];
+    ship2.trail = [];
   };
 
   const resetArena = (): void => {
@@ -296,6 +301,13 @@ export const createGame = (width: number, height: number): Game => {
       ship1.pos = add(ship1.pos, scale(ship1.vel, dt));
       ship2.pos = add(ship2.pos, scale(ship2.vel, dt));
 
+      for (const ship of [ship1, ship2]) {
+        ship.trail.push(vec(ship.pos.x, ship.pos.y));
+        if (ship.trail.length > 14) {
+          ship.trail.shift();
+        }
+      }
+
       const shakeRef = { value: shake };
       resolveCircleCollision(ship1, ship2, audio, particles, shakeRef);
       shake = shakeRef.value;
@@ -396,6 +408,15 @@ export const createGame = (width: number, height: number): Game => {
       const drawShip = (ship: Ship, label: string): void => {
         ctx.save();
         ctx.globalCompositeOperation = "lighter";
+        const n = ship.trail.length;
+        for (let i = 0; i < n; i += 1) {
+          const t = (i + 1) / n;
+          const p = ship.trail[i];
+          ctx.fillStyle = `hsla(${ship.hue}, 100%, 60%, ${t * 0.35})`;
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, SHIP_R * t * 0.9, 0, Math.PI * 2);
+          ctx.fill();
+        }
         ctx.fillStyle = `hsl(${ship.hue}, 100%, 55%)`;
         ctx.shadowColor = `hsl(${ship.hue}, 100%, 45%)`;
         ctx.shadowBlur = 16 + ship.charge * 20;
