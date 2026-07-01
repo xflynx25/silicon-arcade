@@ -25,17 +25,27 @@ type HitFlash = {
 };
 
 const MAX_WAVES = 5;
-const PERFECT_WINDOW_PX = 14;
-const GOOD_WINDOW_PX = 32;
-const ARC_HALF_MAX = 0.4;
-const ARC_HALF_MIN = 0.24;
+const PERFECT_WINDOW_PX = 16;
+const GOOD_WINDOW_PX = 42;
+const ARC_HALF_MAX = 0.42;
+const ARC_HALF_MIN = 0.28;
+const DEFAULT_BASE_BPM = 65;
+const MIN_BASE_BPM = 50;
+const MAX_BASE_BPM = 100;
+export const BPM_STEP = 5;
+const WAVE_BPM_STEP = 8;
+const RING_TRAVEL_BEATS = 3.5;
+const SPAWN_EVERY_N_BEATS = 2;
+const SLIDE_SPEED = 4.8;
+const ARC_SPAWN_MAX_OFFSET = Math.PI * 0.55;
 
 const HELP_BODY =
   "Rhythm co-op — each pulse ring carries two resonance arcs.\n" +
   "Slide to your colored arc on the orbit, then hit as the ring arrives.\n" +
   "Both players must lock their arcs to fill bloom and ascend waves.\n\n" +
   "P1  ·  A/D slide to cyan arc  ·  Left Shift hit  ·  Space slow-mo\n" +
-  "P2  ·  ←/→ slide to magenta arc  ·  Right Shift hit  ·  Enter slow-mo";
+  "P2  ·  ←/→ slide to magenta arc  ·  Right Shift hit  ·  Enter slow-mo\n" +
+  "Title  ·  [ ] adjust tempo";
 
 export type Game = {
   phase: GamePhase;
@@ -49,6 +59,8 @@ export type Game = {
   getHud: () => { left: string; center: string; right: string };
   getOverlay: (helpHeld: boolean) => { title: string; body: string; visible: boolean };
   getBpm: () => number;
+  getBaseBpm: () => number;
+  adjustBaseBpm: (delta: number) => void;
 };
 
 const normalizeAngle = (angle: number): number => {
@@ -75,7 +87,9 @@ export const createGame = (width: number, height: number): Game => {
   let orbitRadius = Math.min(w, h) * 0.32;
 
   let wave = 1;
-  let bpm = 90;
+  let baseBpm = DEFAULT_BASE_BPM;
+  let bpm = DEFAULT_BASE_BPM;
+  let beatCounter = 0;
   let ringSpeed = 0;
   let combo = 0;
   let bloom = 0;
@@ -102,20 +116,24 @@ export const createGame = (width: number, height: number): Game => {
     return ARC_HALF_MAX - t * (ARC_HALF_MAX - ARC_HALF_MIN);
   };
 
-  const recomputeRingSpeed = (): void => {
-    const beatDuration = 60 / bpm;
-    ringSpeed = orbitRadius / beatDuration;
+  const syncWaveBpm = (): void => {
+    bpm = baseBpm + (wave - 1) * WAVE_BPM_STEP;
+    recomputeRingSpeed();
   };
 
-  const randomArcPair = (): { p1Arc: number; p2Arc: number } => {
-    const p1Arc = Math.random() * Math.PI * 2 - Math.PI;
-    const offset = Math.PI * (0.55 + Math.random() * 0.9);
-    const p2Arc = normalizeAngle(p1Arc + offset);
-    return { p1Arc, p2Arc };
+  const recomputeRingSpeed = (): void => {
+    const beatDuration = 60 / bpm;
+    ringSpeed = orbitRadius / (beatDuration * RING_TRAVEL_BEATS);
+  };
+
+  const randomArcNear = (currentAngle: number): number => {
+    const offset = (Math.random() * 2 - 1) * ARC_SPAWN_MAX_OFFSET;
+    return normalizeAngle(currentAngle + offset);
   };
 
   const spawnRing = (): void => {
-    const { p1Arc, p2Arc } = randomArcPair();
+    const p1Arc = randomArcNear(nodeAngleP1);
+    const p2Arc = randomArcNear(nodeAngleP2);
     rings.push({
       radius: 8,
       p1Arc,
@@ -130,7 +148,7 @@ export const createGame = (width: number, height: number): Game => {
 
   const resetSession = (): void => {
     wave = 1;
-    bpm = 90;
+    beatCounter = 0;
     combo = 0;
     bloom = 0;
     scoreP1 = 0;
@@ -142,7 +160,7 @@ export const createGame = (width: number, height: number): Game => {
     timeScale = 1;
     rings.length = 0;
     hitFlashes.length = 0;
-    recomputeRingSpeed();
+    syncWaveBpm();
     spawnRing();
   };
 
@@ -214,8 +232,7 @@ export const createGame = (width: number, height: number): Game => {
       audio.ascend();
       if (wave < MAX_WAVES) {
         wave += 1;
-        bpm = 90 + (wave - 1) * 18;
-        recomputeRingSpeed();
+        syncWaveBpm();
         phase = "waveClear";
         waveTimer = 1.5;
       } else {
@@ -307,8 +324,25 @@ export const createGame = (width: number, height: number): Game => {
       return bpm;
     },
 
+    getBaseBpm(): number {
+      return baseBpm;
+    },
+
+    adjustBaseBpm(delta: number): void {
+      baseBpm = clamp(baseBpm + delta, MIN_BASE_BPM, MAX_BASE_BPM);
+      if (phase === "playing" || phase === "waveClear") {
+        syncWaveBpm();
+      } else {
+        bpm = baseBpm;
+      }
+    },
+
     onBeat(): void {
       if (phase !== "playing") {
+        return;
+      }
+      beatCounter += 1;
+      if (beatCounter % SPAWN_EVERY_N_BEATS !== 0) {
         return;
       }
       spawnRing();
@@ -364,8 +398,8 @@ export const createGame = (width: number, height: number): Game => {
         return;
       }
 
-      nodeAngleP1 = normalizeAngle(nodeAngleP1 + p1.x * scaledDt * 2.4);
-      nodeAngleP2 = normalizeAngle(nodeAngleP2 + p2.x * scaledDt * 2.4);
+      nodeAngleP1 = normalizeAngle(nodeAngleP1 + p1.x * scaledDt * SLIDE_SPEED);
+      nodeAngleP2 = normalizeAngle(nodeAngleP2 + p2.x * scaledDt * SLIDE_SPEED);
 
       if (p1.secondary && focusCooldown <= 0 && focusTimer <= 0) {
         focusTimer = 1.4;
@@ -557,7 +591,10 @@ export const createGame = (width: number, height: number): Game => {
       if (phase === "title") {
         return {
           title: "ECHO",
-          body: HELP_BODY + "\n\nEnter to start  ·  R to restart  ·  Hold H for help",
+          body:
+            HELP_BODY +
+            `\n\nTempo: ${baseBpm} BPM  ·  [ ] to adjust` +
+            "\nEnter to start  ·  R to restart  ·  Hold H for help",
           visible: true
         };
       }

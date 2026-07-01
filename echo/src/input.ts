@@ -1,3 +1,5 @@
+import { BPM_STEP } from "./game";
+
 const BLOCKED_KEYS = new Set([
   "ArrowUp",
   "ArrowDown",
@@ -17,6 +19,7 @@ export type PlayerInput = {
 export type GlobalInput = {
   startPressed: boolean;
   restartPressed: boolean;
+  tempoDelta: number;
 };
 
 const isDown = (set: Set<string>, code: string): boolean => set.has(code);
@@ -55,7 +58,21 @@ export class InputManager {
     const startPressed =
       this.consumePress("Enter") || this.consumePress("NumpadEnter");
     const restartPressed = this.consumePress("KeyR");
-    return { startPressed, restartPressed };
+    let tempoDelta = 0;
+    if (
+      this.consumePress("BracketLeft") ||
+      this.consumePress("Minus") ||
+      this.consumePress("NumpadSubtract")
+    ) {
+      tempoDelta = -BPM_STEP;
+    } else if (
+      this.consumePress("BracketRight") ||
+      this.consumePress("Equal") ||
+      this.consumePress("NumpadAdd")
+    ) {
+      tempoDelta = BPM_STEP;
+    }
+    return { startPressed, restartPressed, tempoDelta };
   }
 
   readPlayerOne(): PlayerInput {

@@ -58,6 +58,9 @@ window.addEventListener(
 createFixedLoop({
   update(dt: number): void {
     const global = input.consumeGlobal();
+    if (global.tempoDelta !== 0 && game.phase === "title") {
+      game.adjustBaseBpm(global.tempoDelta);
+    }
     if (global.startPressed && game.phase === "title") {
       audio.initOnGesture();
       game.startRound();

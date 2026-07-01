@@ -47,6 +47,7 @@ Shared across all games:
 - `A/D` · `←/→` slide to your arc before the ring arrives
 - `Shift` / `RShift` hit on the beat when ring and arc align; both players must lock for bloom
 - `Space` / `Enter` focus slow-mo
+- On title screen: `[` / `]` adjust tempo (50–100 BPM, default 65)
 
 ### VORTEX specifics
 
