@@ -83,11 +83,22 @@ const reflectBallOffSegment = (
   const t = clamp(ap.x * abNorm.x + ap.y * abNorm.y, 0, abLen);
   const closest = vec(a.x + abNorm.x * t, a.y + abNorm.y * t);
   const d = dist(ball.pos, closest);
-  if (d > BALL_R + PADDLE_THICK) {
+  const hitRadius = BALL_R + PADDLE_THICK;
+  if (d > hitRadius) {
     return false;
   }
 
-  const normal = normalize(sub(ball.pos, closest));
+  let normal = sub(ball.pos, closest);
+  let normalLen = len(normal);
+  if (normalLen < 0.001) {
+    const n1 = vec(-abNorm.y, abNorm.x);
+    const n2 = vec(abNorm.y, -abNorm.x);
+    const towardN1 = ball.vel.x * n1.x + ball.vel.y * n1.y;
+    normal = towardN1 < 0 ? n1 : n2;
+    normalLen = 1;
+  } else {
+    normal = vec(normal.x / normalLen, normal.y / normalLen);
+  }
   const speed = len(ball.vel);
   const boost = 1 + smash * 0.35 + ball.rally * 0.02;
   const reflected = vec(
@@ -103,8 +114,9 @@ const reflectBallOffSegment = (
   ball.vel.x *= newSpeed;
   ball.vel.y *= newSpeed;
   ball.rally += 1;
-  ball.pos.x = closest.x + normal.x * (BALL_R + 2);
-  ball.pos.y = closest.y + normal.y * (BALL_R + 2);
+  const separation = hitRadius + 2;
+  ball.pos.x = closest.x + normal.x * separation;
+  ball.pos.y = closest.y + normal.y * separation;
 
   if (smash > 0) {
     audio.smash();

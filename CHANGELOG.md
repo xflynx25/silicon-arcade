@@ -2,6 +2,7 @@
 
 ## 2026-07-01 (continued)
 
+- **RICOCHET**: fixed paddle contact freezing the game — ball separation after a hit was smaller than the collision radius, causing hundreds of bounces per second (audio/particle spam).
 - **POLARITY**: increased ball and player magnetic strength (~10×) and reduced ball drag so the shared core responds when ships close in and flip polarity.
 - Added three new local 2-player games: `ricochet`, `echo`, and `vortex`.
 - **RICOCHET** — competitive tilt-paddle deflection duel with smash lunge and curve spin; first to 5.
