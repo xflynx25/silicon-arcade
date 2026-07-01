@@ -1,18 +1,27 @@
 import type { PlayerInput } from "./input";
 import { ParticleSystem } from "./particles";
 import { AudioSystem } from "./audio";
-import { MODE_HELP, MODE_LABEL, type ModeId } from "./modes";
+import {
+  GOAL_PRESET_LABEL,
+  GOAL_PRESET_ORDER,
+  MODE_DESCRIPTION,
+  MODE_HELP,
+  MODE_LABEL,
+  WIN_SCORE_OPTIONS,
+  type GoalPreset,
+  type ModeId
+} from "./modes";
 import { clamp, dist, len, normalize, sub, vec, type Vec } from "./vec";
 
 export type GamePhase = "title" | "playing" | "roundEnd" | "matchEnd";
 
-const WIN_SCORE = 5;
 const PADDLE_LEN = 90;
 const PADDLE_THICK = 10;
 const BALL_R = 8;
 const WALL_PAD = 48;
-const GOAL_DEPTH = 28;
+const GOAL_DEPTH = 44;
 const GOAL_H = 100;
+const GOAL_H_SMALL = 60;
 const PADDLE_MAX_ANGLE = 1.5;
 const PADDLE_TILT_SPEED = 4.5;
 const MIN_HORIZONTAL_FRAC = 0.34;
@@ -44,12 +53,16 @@ type Goal = {
   blinkOn: number;
   t: number;
   visible: boolean;
+  points: number;
+  respawnOnScore: boolean;
 };
 
 export type Game = {
   phase: GamePhase;
   resize: (w: number, h: number) => void;
   selectMode: (mode: ModeId) => void;
+  cycleWinScore: (delta: number) => void;
+  cycleGoalPreset: () => void;
   startRound: () => void;
   restartRound: () => void;
   update: (dt: number, p1: PlayerInput, p2: PlayerInput, audio: AudioSystem) => void;
@@ -165,6 +178,8 @@ export const createGame = (width: number, height: number): Game => {
   let h = height;
   let phase: GamePhase = "title";
   let currentMode: ModeId = "duel";
+  let winScore = 5;
+  let goalPreset: GoalPreset = "static";
   let scoreP1 = 0;
   let scoreP2 = 0;
   let bestRally = 0;
@@ -205,15 +220,53 @@ export const createGame = (width: number, height: number): Game => {
     p2.spinReady = false;
   };
 
-  const makeGoals = (): Goal[] => [
-    { side: "left", y: h * 0.32, h: GOAL_H, vy: 65, blinkPeriod: 0, blinkOn: 1, t: 0, visible: true },
-    { side: "left", y: h * 0.72, h: GOAL_H, vy: 0, blinkPeriod: 2.4, blinkOn: 0.6, t: 0, visible: true },
-    { side: "right", y: h * 0.32, h: GOAL_H, vy: 0, blinkPeriod: 2.4, blinkOn: 0.6, t: 1.2, visible: true },
-    { side: "right", y: h * 0.72, h: GOAL_H, vy: -65, blinkPeriod: 0, blinkOn: 1, t: 0, visible: true }
-  ];
+  const baseGoal = (side: "left" | "right", y: number, overrides: Partial<Goal> = {}): Goal => ({
+    side,
+    y,
+    h: GOAL_H,
+    vy: 0,
+    blinkPeriod: 0,
+    blinkOn: 1,
+    t: 0,
+    visible: true,
+    points: 1,
+    respawnOnScore: false,
+    ...overrides
+  });
+
+  const makeGoals = (preset: GoalPreset): Goal[] => {
+    const mid = h * 0.5;
+    switch (preset) {
+      case "moving":
+        return [
+          baseGoal("left", mid, { vy: 65 }),
+          baseGoal("right", mid, { vy: -65 })
+        ];
+      case "moveOnHit":
+        return [
+          baseGoal("left", mid, { respawnOnScore: true }),
+          baseGoal("right", mid, { respawnOnScore: true })
+        ];
+      case "double":
+        return [
+          baseGoal("left", h * 0.3, { h: GOAL_H_SMALL, points: 2 }),
+          baseGoal("left", h * 0.7, { points: 1 }),
+          baseGoal("right", h * 0.3, { h: GOAL_H_SMALL, points: 2 }),
+          baseGoal("right", h * 0.7, { points: 1 })
+        ];
+      case "disappearing":
+        return [
+          baseGoal("left", mid, { blinkPeriod: 2.4, blinkOn: 0.6 }),
+          baseGoal("right", mid, { blinkPeriod: 2.4, blinkOn: 0.6, t: 1.2 })
+        ];
+      case "static":
+      default:
+        return [baseGoal("left", mid), baseGoal("right", mid)];
+    }
+  };
 
   const setupMode = (): void => {
-    goals = currentMode === "goals" ? makeGoals() : [];
+    goals = currentMode === "goals" ? makeGoals(goalPreset) : [];
     if (currentMode === "rally") {
       bestRally = 0;
     }
@@ -280,21 +333,21 @@ export const createGame = (width: number, height: number): Game => {
     }
   };
 
-  const scoreGoal = (scorer: 1 | 2, audio: AudioSystem): void => {
+  const scoreGoal = (scorer: 1 | 2, audio: AudioSystem, points = 1): void => {
     if (scorer === 1) {
-      scoreP1 += 1;
+      scoreP1 += points;
     } else {
-      scoreP2 += 1;
+      scoreP2 += points;
     }
     audio.score();
     shake = 12;
     particles.emit(ball.pos, 40, scorer === 1 ? 190 : 320, 220);
-    winner = scoreP1 >= WIN_SCORE ? 1 : scoreP2 >= WIN_SCORE ? 2 : null;
+    winner = scoreP1 >= winScore ? 1 : scoreP2 >= winScore ? 2 : null;
     phase = winner !== null ? "matchEnd" : "roundEnd";
     roundTimer = 1.2;
   };
 
-  const onBallExit = (side: "left" | "right", audio: AudioSystem): void => {
+  const onBallExit = (side: "left" | "right", audio: AudioSystem, points = 1): void => {
     if (currentMode === "rally") {
       bestRally = Math.max(bestRally, ball.rally);
       audio.score();
@@ -305,7 +358,7 @@ export const createGame = (width: number, height: number): Game => {
       return;
     }
     const scorer: 1 | 2 = side === "left" ? 2 : 1;
-    scoreGoal(scorer, audio);
+    scoreGoal(scorer, audio, points);
   };
 
   const tryScoreGoalZone = (side: "left" | "right", audio: AudioSystem): boolean => {
@@ -315,8 +368,10 @@ export const createGame = (width: number, height: number): Game => {
     if (!hit) {
       return false;
     }
-    respawnGoal(hit);
-    onBallExit(side, audio);
+    if (hit.respawnOnScore) {
+      respawnGoal(hit);
+    }
+    onBallExit(side, audio, hit.points);
     return true;
   };
 

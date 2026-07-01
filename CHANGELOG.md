@@ -2,6 +2,7 @@
 
 ## 2026-07-01 (continued)
 
+- **TETHER**: replaced passive stability drain with health — void contact starts a slow bleed, and a co-op prism pickup stops it.
 - **VORTEX**: fixed knockouts being impossible — the per-frame `constrainToArena` wall clamped ships inside the rim before the knockout check could ever fire, so players just bounced off an invisible wall. Removed the wall; the platform edge is now the death line (center past the rim = out), with a rendered platform disc and rim/ship "teetering" danger warnings so falling off reads clearly.
 - **VORTEX**: fixed the crash/slowdown under heavy contact — hazard/ship collisions had no cooldown or separation, spawning ~1000 particles and ~120 audio oscillators per second while overlapping. Added hazard hit cooldown + positional separation, a live-hazard cap and lifetime (they no longer accumulate all round), a hard particle-pool cap, throttled collision audio, and dropped per-particle `shadowBlur` (the dominant render cost).
 - **VORTEX**: parry is now a timed skill with a cooldown (was re-triggerable every frame), and a latent particle bug where `life`/`maxLife` were randomized independently (fade could exceed 1) is fixed.

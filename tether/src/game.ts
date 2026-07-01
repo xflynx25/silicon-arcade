@@ -7,10 +7,12 @@ import { clamp, dist, len, normalize, sub, vec, type Vec } from "./vec";
 const HELP_BODY =
   "Co-op — two spirits bound by an elastic tether.\n" +
   "You slowly SWELL over time — a bigger, easier target.\n" +
-  "Eat light to shrink back down, grab prism pickups\n" +
-  "together, and dodge the dark voids.\n\n" +
+  "Eat light to shrink back down. Touch a void and your\n" +
+  "health bleeds slowly — grab a prism together to stop it.\n\n" +
   "P1  ·  W A S D move  ·  Left Shift reel tether\n" +
   "P2  ·  Arrow keys move  ·  Right Shift reel tether";
+
+const BLEED_RATE = 3.5;
 
 type Difficulty = "easy" | "normal" | "hard";
 
@@ -69,7 +71,8 @@ export class TetherGame {
   private spawnTimer = 0;
   private prismTimer = 5;
   private hazardTimer = 0;
-  private stability = 100;
+  private health = 100;
+  private bleeding = false;
   private shake = 0;
   private restLength = 170;
   private difficulty: Difficulty = "normal";
@@ -102,7 +105,8 @@ export class TetherGame {
     this.spawnTimer = 0.2;
     this.prismTimer = 4;
     this.hazardTimer = 1.5;
-    this.stability = 100;
+    this.health = 100;
+    this.bleeding = false;
     this.shake = 0;
     this.restLength = 170;
     this.orbs.length = 0;
@@ -148,7 +152,9 @@ export class TetherGame {
     this.elapsed += dt;
     this.time += dt;
     this.wave = 1 + Math.floor(this.time / 25);
-    this.stability = Math.max(0, this.stability - dt * (1.5 + this.wave * 0.12) * cfg.drain);
+    if (this.bleeding) {
+      this.health = Math.max(0, this.health - dt * BLEED_RATE * cfg.drain);
+    }
 
     // Spirits swell as the run goes on — a bigger, easier target. Eating light
     // is the only way to shrink back down. Growth accelerates with the wave.
@@ -178,14 +184,15 @@ export class TetherGame {
     this.particles.update(dt);
 
     this.shake *= 0.88;
-    if (this.stability <= 0) {
+    if (this.health <= 0) {
       this.mode = "ended";
       this.audio.danger();
     }
 
+    const bleedLabel = this.bleeding ? " · Bleeding" : "";
     this.hud.setHud({
       left: `P1 ${this.players[0].score}`,
-      center: `Stability ${this.stability.toFixed(0)}% | Wave ${this.wave} | ${DIFFICULTIES[this.difficulty].label}`,
+      center: `Health ${this.health.toFixed(0)}%${bleedLabel} | Wave ${this.wave} | ${DIFFICULTIES[this.difficulty].label}`,
       right: `P2 ${this.players[1].score}`
     });
     if (this.input.isHeld("KeyH")) {
@@ -298,6 +305,7 @@ export class TetherGame {
         // A shared prism shrinks both spirits — a big reprieve for teamwork.
         this.players[0].radius = Math.max(MIN_RADIUS, this.players[0].radius - 7);
         this.players[1].radius = Math.max(MIN_RADIUS, this.players[1].radius - 7);
+        this.bleeding = false;
         this.audio.collect();
         this.particles.emit(orb.pos, 18, orb.hue, 160);
         this.orbs.splice(i, 1);
@@ -377,7 +385,6 @@ export class TetherGame {
   }
 
   private checkPlayerHazards(dt: number): void {
-    const cfg = DIFFICULTIES[this.difficulty];
     for (const hazard of this.hazards) {
       for (const player of this.players) {
         const d = dist(hazard.pos, player.pos);
@@ -386,7 +393,7 @@ export class TetherGame {
           const push = normalize(sub(player.pos, hazard.pos));
           player.vel.x += push.x * 320 * dt;
           player.vel.y += push.y * 320 * dt;
-          this.stability = Math.max(0, this.stability - dt * 28 * cfg.drain);
+          this.bleeding = true;
           this.shake = Math.max(this.shake, 7);
           this.particles.emit(player.pos, 6, 0, 120);
           this.audio.danger();
