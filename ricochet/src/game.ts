@@ -1,6 +1,7 @@
 import type { PlayerInput } from "./input";
 import { ParticleSystem } from "./particles";
 import { AudioSystem } from "./audio";
+import { MODE_HELP, MODE_LABEL, type ModeId } from "./modes";
 import { clamp, dist, len, normalize, sub, vec, type Vec } from "./vec";
 
 export type GamePhase = "title" | "playing" | "roundEnd" | "matchEnd";
@@ -11,6 +12,10 @@ const PADDLE_THICK = 10;
 const BALL_R = 8;
 const WALL_PAD = 48;
 const GOAL_DEPTH = 28;
+const GOAL_H = 100;
+const PADDLE_MAX_ANGLE = 1.5;
+const PADDLE_TILT_SPEED = 4.5;
+const MIN_HORIZONTAL_FRAC = 0.34;
 
 type Paddle = {
   y: number;
@@ -30,9 +35,21 @@ type Ball = {
 
 type TrailPoint = { x: number; y: number; age: number };
 
+type Goal = {
+  side: "left" | "right";
+  y: number;
+  h: number;
+  vy: number;
+  blinkPeriod: number;
+  blinkOn: number;
+  t: number;
+  visible: boolean;
+};
+
 export type Game = {
   phase: GamePhase;
   resize: (w: number, h: number) => void;
+  selectMode: (mode: ModeId) => void;
   startRound: () => void;
   restartRound: () => void;
   update: (dt: number, p1: PlayerInput, p2: PlayerInput, audio: AudioSystem) => void;
@@ -42,11 +59,21 @@ export type Game = {
   getOverlay: (helpHeld: boolean) => { title: string; body: string; visible: boolean };
 };
 
-const HELP_BODY =
-  "Competitive duel — deflect the neon ball past\n" +
-  "your rival's side. First to 5 wins.\n\n" +
-  "P1  ·  W/S slide  ·  A/D tilt  ·  Left Shift smash  ·  Space spin\n" +
-  "P2  ·  ↑/↓ slide  ·  ←/→ tilt  ·  Right Shift smash  ·  Enter spin";
+// keep |vx| >= MIN_HORIZONTAL_FRAC of the total speed, preserving total speed,
+// so a near-vertical bounce still crosses the arena instead of stalling top<->bottom
+const enforceMinHorizontal = (ball: Ball, minFrac = MIN_HORIZONTAL_FRAC): void => {
+  const speed = len(ball.vel);
+  if (speed < 1) {
+    return;
+  }
+  const minVx = speed * minFrac;
+  if (Math.abs(ball.vel.x) < minVx) {
+    const sign = ball.vel.x >= 0 ? 1 : -1;
+    ball.vel.x = sign * minVx;
+    const vy2 = Math.max(0, speed * speed - ball.vel.x * ball.vel.x);
+    ball.vel.y = Math.sign(ball.vel.y || 1) * Math.sqrt(vy2);
+  }
+};
 
 const paddleEndpoints = (
   paddle: Paddle,
@@ -117,6 +144,7 @@ const reflectBallOffSegment = (
   const separation = hitRadius + 2;
   ball.pos.x = closest.x + normal.x * separation;
   ball.pos.y = closest.y + normal.y * separation;
+  enforceMinHorizontal(ball);
 
   if (smash > 0) {
     audio.smash();
@@ -136,11 +164,14 @@ export const createGame = (width: number, height: number): Game => {
   let w = width;
   let h = height;
   let phase: GamePhase = "title";
+  let currentMode: ModeId = "duel";
   let scoreP1 = 0;
   let scoreP2 = 0;
+  let bestRally = 0;
   let roundTimer = 0;
   let shake = 0;
   let winner: 1 | 2 | null = null;
+  let goals: Goal[] = [];
   const particles = new ParticleSystem();
   const trails: TrailPoint[] = [];
 
@@ -160,6 +191,7 @@ export const createGame = (width: number, height: number): Game => {
     ball.rally = 0;
     const dir = toward === 1 ? -1 : 1;
     ball.vel = vec(dir * 280, (Math.random() - 0.5) * 160);
+    enforceMinHorizontal(ball);
   };
 
   const resetPaddles = (): void => {
@@ -173,6 +205,54 @@ export const createGame = (width: number, height: number): Game => {
     p2.spinReady = false;
   };
 
+  const makeGoals = (): Goal[] => [
+    { side: "left", y: h * 0.32, h: GOAL_H, vy: 65, blinkPeriod: 0, blinkOn: 1, t: 0, visible: true },
+    { side: "left", y: h * 0.72, h: GOAL_H, vy: 0, blinkPeriod: 2.4, blinkOn: 0.6, t: 0, visible: true },
+    { side: "right", y: h * 0.32, h: GOAL_H, vy: 0, blinkPeriod: 2.4, blinkOn: 0.6, t: 1.2, visible: true },
+    { side: "right", y: h * 0.72, h: GOAL_H, vy: -65, blinkPeriod: 0, blinkOn: 1, t: 0, visible: true }
+  ];
+
+  const setupMode = (): void => {
+    goals = currentMode === "goals" ? makeGoals() : [];
+    if (currentMode === "rally") {
+      bestRally = 0;
+    }
+  };
+
+  const updateGoals = (dt: number): void => {
+    for (const g of goals) {
+      if (g.vy !== 0) {
+        g.y += g.vy * dt;
+        const minY = WALL_PAD + g.h * 0.5;
+        const maxY = h - WALL_PAD - g.h * 0.5;
+        if (g.y < minY) {
+          g.y = minY;
+          g.vy = Math.abs(g.vy);
+        } else if (g.y > maxY) {
+          g.y = maxY;
+          g.vy = -Math.abs(g.vy);
+        }
+      }
+      if (g.blinkPeriod > 0) {
+        g.t += dt;
+        if (g.t > g.blinkPeriod) {
+          g.t -= g.blinkPeriod;
+        }
+        g.visible = g.t < g.blinkPeriod * g.blinkOn;
+      } else {
+        g.visible = true;
+      }
+    }
+  };
+
+  const respawnGoal = (g: Goal): void => {
+    const minY = WALL_PAD + g.h * 0.5;
+    const maxY = h - WALL_PAD - g.h * 0.5;
+    g.y = minY + Math.random() * (maxY - minY);
+    g.t = 0;
+    g.visible = true;
+  };
+
   const updatePaddle = (
     paddle: Paddle,
     input: PlayerInput,
@@ -183,7 +263,11 @@ export const createGame = (width: number, height: number): Game => {
     const minY = WALL_PAD + PADDLE_LEN * 0.5;
     const maxY = h - WALL_PAD - PADDLE_LEN * 0.5;
     paddle.y = clamp(paddle.y + slideAxis * 420 * dt, minY, maxY);
-    paddle.angle = clamp(paddle.angle + tiltAxis * 2.8 * dt, -0.85, 0.85);
+    paddle.angle = clamp(
+      paddle.angle + tiltAxis * PADDLE_TILT_SPEED * dt,
+      -PADDLE_MAX_ANGLE,
+      PADDLE_MAX_ANGLE
+    );
 
     if (input.primary) {
       paddle.smash = clamp(paddle.smash + 4 * dt, 0, 1);
@@ -210,6 +294,32 @@ export const createGame = (width: number, height: number): Game => {
     roundTimer = 1.2;
   };
 
+  const onBallExit = (side: "left" | "right", audio: AudioSystem): void => {
+    if (currentMode === "rally") {
+      bestRally = Math.max(bestRally, ball.rally);
+      audio.score();
+      shake = 10;
+      particles.emit(ball.pos, 30, 55, 200);
+      phase = "roundEnd";
+      roundTimer = 0.9;
+      return;
+    }
+    const scorer: 1 | 2 = side === "left" ? 2 : 1;
+    scoreGoal(scorer, audio);
+  };
+
+  const tryScoreGoalZone = (side: "left" | "right", audio: AudioSystem): boolean => {
+    const hit = goals.find(
+      (g) => g.side === side && g.visible && Math.abs(ball.pos.y - g.y) <= g.h * 0.5 + BALL_R
+    );
+    if (!hit) {
+      return false;
+    }
+    respawnGoal(hit);
+    onBallExit(side, audio);
+    return true;
+  };
+
   return {
     get phase() {
       return phase;
@@ -222,11 +332,19 @@ export const createGame = (width: number, height: number): Game => {
       ball.pos = vec(w * 0.5, h * 0.5);
     },
 
+    selectMode(mode: ModeId): void {
+      if (phase !== "title") {
+        return;
+      }
+      currentMode = mode;
+    },
+
     startRound(): void {
       phase = "playing";
       scoreP1 = 0;
       scoreP2 = 0;
       winner = null;
+      setupMode();
       resetPaddles();
       resetBall(Math.random() > 0.5 ? 1 : 2);
     },
@@ -236,6 +354,7 @@ export const createGame = (width: number, height: number): Game => {
       scoreP1 = 0;
       scoreP2 = 0;
       winner = null;
+      setupMode();
       resetPaddles();
       resetBall(Math.random() > 0.5 ? 1 : 2);
     },
@@ -249,7 +368,9 @@ export const createGame = (width: number, height: number): Game => {
         if (roundTimer <= 0 && phase === "roundEnd") {
           phase = "playing";
           resetPaddles();
-          resetBall(scoreP1 > scoreP2 ? 2 : 1);
+          resetBall(
+            currentMode === "rally" ? (Math.random() > 0.5 ? 1 : 2) : scoreP1 > scoreP2 ? 2 : 1
+          );
         }
         return;
       }
@@ -279,34 +400,79 @@ export const createGame = (width: number, height: number): Game => {
       if (ball.pos.y - BALL_R < top) {
         ball.pos.y = top + BALL_R;
         ball.vel.y = Math.abs(ball.vel.y);
+        enforceMinHorizontal(ball);
         audio.bounce();
       }
       if (ball.pos.y + BALL_R > bottom) {
         ball.pos.y = bottom - BALL_R;
         ball.vel.y = -Math.abs(ball.vel.y);
+        enforceMinHorizontal(ball);
         audio.bounce();
       }
 
       const leftWall = WALL_PAD;
       const rightWall = w - WALL_PAD;
 
-      if (ball.pos.x - BALL_R < leftWall - GOAL_DEPTH) {
-        scoreGoal(2, audio);
-        return;
-      }
-      if (ball.pos.x + BALL_R > rightWall + GOAL_DEPTH) {
-        scoreGoal(1, audio);
-        return;
+      if (currentMode === "goals") {
+        updateGoals(dt);
+        if (ball.pos.x - BALL_R < leftWall - GOAL_DEPTH) {
+          if (tryScoreGoalZone("left", audio)) {
+            return;
+          }
+          ball.pos.x = leftWall - GOAL_DEPTH + BALL_R;
+          ball.vel.x = Math.abs(ball.vel.x);
+          enforceMinHorizontal(ball);
+          audio.bounce();
+        }
+        if (ball.pos.x + BALL_R > rightWall + GOAL_DEPTH) {
+          if (tryScoreGoalZone("right", audio)) {
+            return;
+          }
+          ball.pos.x = rightWall + GOAL_DEPTH - BALL_R;
+          ball.vel.x = -Math.abs(ball.vel.x);
+          enforceMinHorizontal(ball);
+          audio.bounce();
+        }
+      } else {
+        if (ball.pos.x - BALL_R < leftWall - GOAL_DEPTH) {
+          onBallExit("left", audio);
+          return;
+        }
+        if (ball.pos.x + BALL_R > rightWall + GOAL_DEPTH) {
+          onBallExit("right", audio);
+          return;
+        }
       }
 
       const p1Seg = paddleEndpoints(p1, leftWall, p1.smash * 22);
       const p2Seg = paddleEndpoints(p2, rightWall, p2.smash * 22);
 
-      if (reflectBallOffSegment(ball, p1Seg.a, p1Seg.b, p1.smash, p1.spinReady, audio, particles)) {
+      const p1Hit = reflectBallOffSegment(
+        ball,
+        p1Seg.a,
+        p1Seg.b,
+        p1.smash,
+        p1.spinReady,
+        audio,
+        particles
+      );
+      if (p1Hit) {
         p1.spinReady = false;
       }
-      if (reflectBallOffSegment(ball, p2Seg.a, p2Seg.b, p2.smash, p2.spinReady, audio, particles)) {
+      const p2Hit = reflectBallOffSegment(
+        ball,
+        p2Seg.a,
+        p2Seg.b,
+        p2.smash,
+        p2.spinReady,
+        audio,
+        particles
+      );
+      if (p2Hit) {
         p2.spinReady = false;
+      }
+      if (currentMode === "rally" && (p1Hit || p2Hit) && ball.rally > 0 && ball.rally % 5 === 0) {
+        audio.spin();
       }
 
       if (ball.pos.x - BALL_R < leftWall && ball.vel.x < 0) {
@@ -359,10 +525,30 @@ export const createGame = (width: number, height: number): Game => {
       ctx.lineTo(rightWall, bottom);
       ctx.stroke();
 
-      ctx.fillStyle = "rgba(255, 60, 100, 0.25)";
-      ctx.fillRect(0, top, leftWall - GOAL_DEPTH, bottom - top);
-      ctx.fillStyle = "rgba(60, 200, 255, 0.25)";
-      ctx.fillRect(rightWall + GOAL_DEPTH, top, rw - rightWall - GOAL_DEPTH, bottom - top);
+      if (currentMode === "goals") {
+        ctx.fillStyle = "rgba(255,255,255,0.05)";
+        ctx.fillRect(0, top, leftWall - GOAL_DEPTH, bottom - top);
+        ctx.fillRect(rightWall + GOAL_DEPTH, top, rw - rightWall - GOAL_DEPTH, bottom - top);
+
+        for (const g of goals) {
+          const hue = g.side === "left" ? 350 : 195;
+          const x = g.side === "left" ? 0 : rightWall + GOAL_DEPTH;
+          const gw = g.side === "left" ? leftWall - GOAL_DEPTH : rw - rightWall - GOAL_DEPTH;
+          const gy = g.y - g.h * 0.5;
+          ctx.save();
+          ctx.globalCompositeOperation = "lighter";
+          ctx.fillStyle = `hsla(${hue}, 100%, 60%, ${g.visible ? 0.45 : 0.08})`;
+          ctx.shadowColor = `hsla(${hue}, 100%, 55%, ${g.visible ? 0.8 : 0.15})`;
+          ctx.shadowBlur = g.visible ? 22 : 6;
+          ctx.fillRect(x, gy, gw, g.h);
+          ctx.restore();
+        }
+      } else {
+        ctx.fillStyle = "rgba(255, 60, 100, 0.25)";
+        ctx.fillRect(0, top, leftWall - GOAL_DEPTH, bottom - top);
+        ctx.fillStyle = "rgba(60, 200, 255, 0.25)";
+        ctx.fillRect(rightWall + GOAL_DEPTH, top, rw - rightWall - GOAL_DEPTH, bottom - top);
+      }
 
       ctx.save();
       ctx.strokeStyle = "rgba(255,255,255,0.12)";
@@ -426,18 +612,27 @@ export const createGame = (width: number, height: number): Game => {
     },
 
     getHud(): { left: string; center: string; right: string } {
+      if (currentMode === "rally") {
+        return {
+          left: "",
+          center: phase === "title" ? "" : `Rally ${ball.rally}`,
+          right: `Best ${bestRally}`
+        };
+      }
       return {
         left: `P1 ${scoreP1}`,
-        center: phase === "playing" ? `Rally ${ball.rally}` : phase === "roundEnd" ? "GOAL!" : "",
+        center: phase === "playing" ? MODE_LABEL[currentMode] : phase === "roundEnd" ? "GOAL!" : "",
         right: `P2 ${scoreP2}`
       };
     },
 
     getOverlay(helpHeld: boolean): { title: string; body: string; visible: boolean } {
+      const help = MODE_HELP[currentMode];
       if (phase === "title") {
+        const modeLine = `Mode: ${MODE_LABEL[currentMode]}   (1 Duel · 2 Rally · 3 Goals)`;
         return {
           title: "RICOCHET",
-          body: HELP_BODY + "\n\nEnter to start  ·  R to restart  ·  Hold H for help",
+          body: `${modeLine}\n\n${help}\n\nEnter to start  ·  R to restart  ·  Hold H for help`,
           visible: true
         };
       }
@@ -451,7 +646,7 @@ export const createGame = (width: number, height: number): Game => {
       if (helpHeld) {
         return {
           title: "HOW TO PLAY",
-          body: HELP_BODY + "\n\nRelease H to resume",
+          body: `${help}\n\nRelease H to resume`,
           visible: true
         };
       }

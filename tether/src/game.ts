@@ -6,16 +6,39 @@ import { clamp, dist, len, normalize, sub, vec, type Vec } from "./vec";
 
 const HELP_BODY =
   "Co-op — two spirits bound by an elastic tether.\n" +
-  "Swing and slingshot to collect light, grab prism\n" +
-  "pickups together, and dodge the dark voids.\n\n" +
+  "You slowly SWELL over time — a bigger, easier target.\n" +
+  "Eat light to shrink back down, grab prism pickups\n" +
+  "together, and dodge the dark voids.\n\n" +
   "P1  ·  W A S D move  ·  Left Shift reel tether\n" +
   "P2  ·  Arrow keys move  ·  Right Shift reel tether";
+
+type Difficulty = "easy" | "normal" | "hard";
+
+type DifficultyConfig = {
+  label: string;
+  hazardSize: number;
+  hazardSpeed: number;
+  hazardCount: number;
+  growth: number;
+  drain: number;
+};
+
+const DIFFICULTIES: Record<Difficulty, DifficultyConfig> = {
+  easy: { label: "Easy", hazardSize: 0.85, hazardSpeed: 0.8, hazardCount: 0.7, growth: 0.65, drain: 0.75 },
+  normal: { label: "Normal", hazardSize: 1, hazardSpeed: 1, hazardCount: 1, growth: 1, drain: 1 },
+  hard: { label: "Hard", hazardSize: 1.4, hazardSpeed: 1.45, hazardCount: 1.6, growth: 1.55, drain: 1.35 }
+};
+
+const BASE_RADIUS = 13;
+const MIN_RADIUS = 10;
+const MAX_RADIUS = 46;
 
 type Player = {
   pos: Vec;
   vel: Vec;
   hue: number;
   score: number;
+  radius: number;
   trail: Vec[];
 };
 
@@ -49,9 +72,10 @@ export class TetherGame {
   private stability = 100;
   private shake = 0;
   private restLength = 170;
+  private difficulty: Difficulty = "normal";
   private readonly players: [Player, Player] = [
-    { pos: vec(520, 360), vel: vec(0, 0), hue: 186, score: 0, trail: [] },
-    { pos: vec(760, 360), vel: vec(0, 0), hue: 328, score: 0, trail: [] }
+    { pos: vec(520, 360), vel: vec(0, 0), hue: 186, score: 0, radius: BASE_RADIUS, trail: [] },
+    { pos: vec(760, 360), vel: vec(0, 0), hue: 328, score: 0, radius: BASE_RADIUS, trail: [] }
   ];
   private readonly orbs: Orb[] = [];
   private readonly hazards: Hazard[] = [];
@@ -83,8 +107,9 @@ export class TetherGame {
     this.restLength = 170;
     this.orbs.length = 0;
     this.hazards.length = 0;
-    this.players[0] = { pos: vec(this.world.width * 0.42, this.world.height * 0.5), vel: vec(), hue: 186, score: 0, trail: [] };
-    this.players[1] = { pos: vec(this.world.width * 0.58, this.world.height * 0.5), vel: vec(), hue: 328, score: 0, trail: [] };
+    this.particles.clear();
+    this.players[0] = { pos: vec(this.world.width * 0.42, this.world.height * 0.5), vel: vec(), hue: 186, score: 0, radius: BASE_RADIUS, trail: [] };
+    this.players[1] = { pos: vec(this.world.width * 0.58, this.world.height * 0.5), vel: vec(), hue: 328, score: 0, radius: BASE_RADIUS, trail: [] };
   }
 
   update(dt: number): void {

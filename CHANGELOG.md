@@ -2,6 +2,14 @@
 
 ## 2026-07-01 (continued)
 
+- **VORTEX**: fixed knockouts being impossible — the per-frame `constrainToArena` wall clamped ships inside the rim before the knockout check could ever fire, so players just bounced off an invisible wall. Removed the wall; the platform edge is now the death line (center past the rim = out), with a rendered platform disc and rim/ship "teetering" danger warnings so falling off reads clearly.
+- **VORTEX**: fixed the crash/slowdown under heavy contact — hazard/ship collisions had no cooldown or separation, spawning ~1000 particles and ~120 audio oscillators per second while overlapping. Added hazard hit cooldown + positional separation, a live-hazard cap and lifetime (they no longer accumulate all round), a hard particle-pool cap, throttled collision audio, and dropped per-particle `shadowBlur` (the dominant render cost).
+- **VORTEX**: parry is now a timed skill with a cooldown (was re-triggerable every frame), and a latent particle bug where `life`/`maxLife` were randomized independently (fade could exceed 1) is fixed.
+- **RICOCHET**: added selectable game modes — title-screen picker (`1`/`2`/`3`) for **Duel** (unchanged competitive first-to-5), **Rally** (co-op: keep the ball alive, live + best rally counters, no scoring), and **Goals** (discrete moving/blinking goal zones per side instead of full-height walls; miss a zone and the wall holds).
+- **RICOCHET**: enforced a minimum horizontal velocity fraction after every bounce/reflect/serve so steep-angle rallies still cross the arena instead of stalling top-to-bottom.
+- **RICOCHET**: widened paddle tilt range (±0.85 → ±1.5 rad) and raised tilt speed (2.8 → 4.5 rad/s) for full wall-to-wall paddle rotation.
+- **RICOCHET**: center HUD now shows the active mode label during Duel/Goals play instead of a misleading "Rally N" that reset every point.
+
 - **ECHO**: slowed pacing — rings now take ~3.5 beats to reach the orbit, spawn every 2 beats, arcs spawn near your node, wider hit windows, faster slide; title-screen tempo control with `[` / `]` (50–100 BPM).
 - **ECHO**: reworked into a real co-op rhythm game — each pulse ring spawns separate P1/P2 resonance arcs on the orbit; slide to your arc and hit on beat; both players must lock the same ring to fill bloom and ascend waves; edge-triggered hits, arc guides, and tighter wave scaling.
 - **RICOCHET**: fixed paddle contact freezing the game — ball separation after a hit was smaller than the collision radius, causing hundreds of bounces per second (audio/particle spam).

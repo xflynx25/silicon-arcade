@@ -24,7 +24,7 @@ pnpm dev:vortex
 |------|-------|---------|
 | **TETHER** | Co-opetition | Spirits linked by an elastic tether — swing, slingshot, collect orbs |
 | **POLARITY** | Competitive duel | Magnetic ships flip polarity to grab and shoot a shared charged ball |
-| **RICOCHET** | Competitive duel | Tilt paddles to deflect a neon ball — smash lunge and curve spin |
+| **RICOCHET** | Competitive duel / co-op / pong | Tilt paddles to deflect a neon ball — smash lunge, curve spin, and three selectable modes |
 | **ECHO** | Rhythm co-op | Slide to your resonance arc, hit the pulse ring on beat — duo lock fills bloom |
 | **VORTEX** | Sumo knockout | Charge-dash ships in a shrinking arena — knock your opponent out |
 
@@ -40,6 +40,10 @@ Shared across all games:
 
 - P1: `W/S` slide paddle, `A/D` tilt
 - P2: `↑/↓` slide paddle, `←/→` tilt
+- On title screen: `1` Duel · `2` Rally · `3` Goals, then `Enter` to start
+- **Duel** — competitive; first to 5 wins
+- **Rally** — co-op; keep the ball alive together, live rally count + best rally tracked
+- **Goals** — competitive pong with discrete goal zones per side (one moving, one blinking); miss the zone and the wall holds
 
 ### ECHO specifics
 

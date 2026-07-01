@@ -14,6 +14,7 @@ type Ship = {
   vel: Vec;
   charge: number;
   parry: number;
+  parryCd: number;
   hue: number;
   dashDir: Vec;
   trail: Vec[];
@@ -22,7 +23,14 @@ type Ship = {
 type Hazard = {
   pos: Vec;
   vel: Vec;
+  life: number;
+  cooldown: number;
 };
+
+const HAZARD_MAX = 4;
+const HAZARD_LIFE = 12;
+const PARRY_TIME = 0.32;
+const PARRY_CD = 0.75;
 
 export type Game = {
   phase: GamePhase;
@@ -127,6 +135,7 @@ export const createGame = (width: number, height: number): Game => {
     vel: vec(0, 0),
     charge: 0,
     parry: 0,
+    parryCd: 0,
     hue: 175,
     dashDir: vec(1, 0),
     trail: []
@@ -136,6 +145,7 @@ export const createGame = (width: number, height: number): Game => {
     vel: vec(0, 0),
     charge: 0,
     parry: 0,
+    parryCd: 0,
     hue: 15,
     dashDir: vec(-1, 0),
     trail: []
@@ -150,6 +160,8 @@ export const createGame = (width: number, height: number): Game => {
     ship2.charge = 0;
     ship1.parry = 0;
     ship2.parry = 0;
+    ship1.parryCd = 0;
+    ship2.parryCd = 0;
     ship1.dashDir = vec(1, 0);
     ship2.dashDir = vec(-1, 0);
     ship1.trail = [];
@@ -161,15 +173,21 @@ export const createGame = (width: number, height: number): Game => {
     cy = h * 0.5;
     arenaRadius = Math.min(w, h) * 0.42;
     hazards.length = 0;
-    hazardTimer = 3;
+    hazardTimer = 4;
+    particles.clear();
   };
 
   const spawnHazard = (): void => {
+    if (hazards.length >= HAZARD_MAX) {
+      return;
+    }
     const angle = Math.random() * Math.PI * 2;
-    const r = arenaRadius * (0.2 + Math.random() * 0.5);
+    const r = arenaRadius * (0.2 + Math.random() * 0.45);
     hazards.push({
       pos: vec(cx + Math.cos(angle) * r, cy + Math.sin(angle) * r),
-      vel: vec((Math.random() - 0.5) * 60, (Math.random() - 0.5) * 60)
+      vel: vec((Math.random() - 0.5) * 60, (Math.random() - 0.5) * 60),
+      life: HAZARD_LIFE,
+      cooldown: 0
     });
   };
 
@@ -201,27 +219,26 @@ export const createGame = (width: number, height: number): Game => {
       ship.charge = Math.max(0, ship.charge - 4 * dt);
     }
 
-    if (input.secondary && ship.parry <= 0) {
-      ship.parry = 0.35;
+    if (input.secondary && ship.parry <= 0 && ship.parryCd <= 0) {
+      ship.parry = PARRY_TIME;
+      ship.parryCd = PARRY_CD;
       audio.parry();
     }
     ship.parry = Math.max(0, ship.parry - dt);
+    ship.parryCd = Math.max(0, ship.parryCd - dt);
   };
 
-  const constrainToArena = (ship: Ship): boolean => {
-    const offset = sub(ship.pos, vec(cx, cy));
-    const d = len(offset);
-    if (d <= arenaRadius - SHIP_R) {
-      return false;
-    }
-    const n = normalize(offset);
-    ship.pos = add(vec(cx, cy), scale(n, arenaRadius - SHIP_R - 1));
-    return true;
+  // 0 when safe near the middle, ramps to 1 as the ship approaches the rim.
+  const rimDanger = (ship: Ship): number => {
+    const d = dist(ship.pos, vec(cx, cy));
+    return clamp((d / arenaRadius - 0.6) / 0.4, 0, 1);
   };
 
   const checkKnockout = (audio: AudioSystem): 1 | 2 | null => {
     const d1 = dist(ship1.pos, vec(cx, cy));
     const d2 = dist(ship2.pos, vec(cx, cy));
+    // No wall: the platform edge is the death line. You're out once your center
+    // clears the rim (roughly half your body over the edge).
     const out1 = d1 > arenaRadius;
     const out2 = d2 > arenaRadius;
     if (out1 && !out2) {
@@ -315,29 +332,46 @@ export const createGame = (width: number, height: number): Game => {
       hazardTimer -= dt;
       if (hazardTimer <= 0) {
         spawnHazard();
-        hazardTimer = 2.5 + Math.random() * 2;
+        hazardTimer = 3 + Math.random() * 2.5;
       }
 
-      for (const hazard of hazards) {
+      for (let i = hazards.length - 1; i >= 0; i -= 1) {
+        const hazard = hazards[i];
+        hazard.life -= dt;
+        hazard.cooldown = Math.max(0, hazard.cooldown - dt);
+        if (hazard.life <= 0) {
+          particles.emit(hazard.pos, 6, 45, 80);
+          hazards.splice(i, 1);
+          continue;
+        }
+
         hazard.pos = add(hazard.pos, scale(hazard.vel, dt));
         const toCenter = sub(vec(cx, cy), hazard.pos);
         const d = len(toCenter);
-        if (d > arenaRadius * 0.85) {
-          hazard.vel = add(hazard.vel, scale(normalize(toCenter), 40 * dt));
+        // Keep hazards on the platform; the shrinking edge can otherwise strand them.
+        if (d > arenaRadius - HAZARD_R) {
+          const inward = normalize(toCenter);
+          hazard.pos = add(vec(cx, cy), scale(inward, -(arenaRadius - HAZARD_R)));
+          const vn = hazard.vel.x * inward.x + hazard.vel.y * inward.y;
+          hazard.vel = sub(hazard.vel, scale(inward, 2 * vn));
         }
 
         for (const ship of [ship1, ship2]) {
-          if (dist(ship.pos, hazard.pos) < SHIP_R + HAZARD_R) {
-            const push = normalize(sub(ship.pos, hazard.pos));
-            ship.vel = add(ship.vel, scale(push, 200));
-            particles.emit(hazard.pos, 8, 45, 100);
+          const between = sub(ship.pos, hazard.pos);
+          const gap = len(between);
+          if (gap < SHIP_R + HAZARD_R && hazard.cooldown <= 0) {
+            const push = normalize(between);
+            // Separate so they can't stay overlapped (which spammed particles/audio).
+            ship.pos = add(hazard.pos, scale(push, SHIP_R + HAZARD_R + 1));
+            ship.vel = add(ship.vel, scale(push, 260));
+            hazard.vel = sub(hazard.vel, scale(push, 120));
+            hazard.cooldown = 0.25;
+            shake = Math.max(shake, 5);
+            particles.emit(hazard.pos, 10, 45, 140);
             audio.collision();
           }
         }
       }
-
-      constrainToArena(ship1);
-      constrainToArena(ship2);
 
       const knockout = checkKnockout(audio);
       if (knockout !== null) {
@@ -363,31 +397,51 @@ export const createGame = (width: number, height: number): Game => {
     },
 
     render(ctx: CanvasRenderingContext2D, rw: number, rh: number): void {
-      ctx.fillStyle = "#060810";
+      // Dark void: anything outside the platform is "off the edge".
+      ctx.fillStyle = "#04060c";
       ctx.fillRect(0, 0, rw, rh);
 
+      // The platform surface — a lit disc so falling off the rim reads clearly.
+      const surface = ctx.createRadialGradient(cx, cy, arenaRadius * 0.1, cx, cy, arenaRadius);
+      surface.addColorStop(0, "rgba(20, 34, 52, 0.95)");
+      surface.addColorStop(0.82, "rgba(12, 22, 38, 0.95)");
+      surface.addColorStop(1, "rgba(8, 14, 26, 0.95)");
+      ctx.fillStyle = surface;
+      ctx.beginPath();
+      ctx.arc(cx, cy, arenaRadius, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Grid rings, clipped to the platform so they reinforce the disc shape.
       ctx.save();
-      ctx.strokeStyle = "rgba(0, 220, 200, 0.06)";
+      ctx.beginPath();
+      ctx.arc(cx, cy, arenaRadius, 0, Math.PI * 2);
+      ctx.clip();
+      ctx.strokeStyle = "rgba(0, 220, 200, 0.08)";
       ctx.lineWidth = 1;
-      for (let r = 40; r < Math.max(rw, rh); r += 40) {
+      for (let r = 40; r < arenaRadius; r += 40) {
         ctx.beginPath();
         ctx.arc(cx, cy, r, 0, Math.PI * 2);
         ctx.stroke();
       }
       ctx.restore();
 
+      // Warn when either ship is teetering near the rim.
+      const danger = Math.max(rimDanger(ship1), rimDanger(ship2));
+
       ctx.save();
       ctx.globalCompositeOperation = "lighter";
-      ctx.strokeStyle = "rgba(255, 80, 80, 0.5)";
+      const rimAlpha = 0.5 + danger * 0.45;
+      ctx.strokeStyle = `rgba(255, ${Math.round(80 - danger * 50)}, ${Math.round(80 - danger * 50)}, ${rimAlpha})`;
       ctx.shadowColor = "rgba(255, 60, 60, 0.6)";
-      ctx.shadowBlur = 16;
-      ctx.lineWidth = 3;
+      ctx.shadowBlur = 16 + danger * 24;
+      ctx.lineWidth = 3 + danger * 3;
       ctx.beginPath();
       ctx.arc(cx, cy, arenaRadius, 0, Math.PI * 2);
       ctx.stroke();
 
       ctx.strokeStyle = "rgba(0, 220, 200, 0.15)";
       ctx.lineWidth = 1;
+      ctx.shadowBlur = 0;
       ctx.beginPath();
       ctx.arc(cx, cy, arenaRadius - 4, 0, Math.PI * 2);
       ctx.stroke();
@@ -424,8 +478,18 @@ export const createGame = (width: number, height: number): Game => {
         ctx.arc(ship.pos.x, ship.pos.y, SHIP_R, 0, Math.PI * 2);
         ctx.fill();
 
+        // Flash a white warning ring as this ship nears the rim.
+        const danger = rimDanger(ship);
+        if (danger > 0.01) {
+          ctx.strokeStyle = `rgba(255, 255, 255, ${danger * 0.85})`;
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.arc(ship.pos.x, ship.pos.y, SHIP_R + 4 + danger * 6, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+
         if (ship.parry > 0) {
-          ctx.strokeStyle = `hsla(${ship.hue}, 100%, 80%, ${ship.parry / 0.35})`;
+          ctx.strokeStyle = `hsla(${ship.hue}, 100%, 80%, ${ship.parry / PARRY_TIME})`;
           ctx.lineWidth = 3;
           ctx.beginPath();
           ctx.arc(ship.pos.x, ship.pos.y, SHIP_R + 8, 0, Math.PI * 2);

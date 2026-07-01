@@ -9,6 +9,7 @@ type SfxConfig = {
 export class AudioSystem {
   private context: AudioContext | null = null;
   private initialized = false;
+  private lastCollision = 0;
 
   initOnGesture(): void {
     if (this.initialized) {
@@ -64,6 +65,15 @@ export class AudioSystem {
   }
 
   collision(): void {
+    // Throttle: contact resolves over several frames, so cap the retrigger rate
+    // to avoid stacking dozens of oscillators (which also caused audio crackle).
+    if (!this.context) {
+      return;
+    }
+    if (this.context.currentTime - this.lastCollision < 0.06) {
+      return;
+    }
+    this.lastCollision = this.context.currentTime;
     this.play({ freq: 200, duration: 0.1, type: "triangle", gain: 0.04, slideTo: 320 });
   }
 
