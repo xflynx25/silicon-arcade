@@ -1,0 +1,13 @@
+{
+  "name": "gf-game",
+  "private": true,
+  "packageManager": "pnpm@9.0.0",
+  "scripts": {
+    "dev:tether": "pnpm --filter tether dev",
+    "dev:polarity": "pnpm --filter polarity dev",
+    "dev:ricochet": "pnpm --filter ricochet dev",
+    "dev:echo": "pnpm --filter echo dev",
+    "dev:vortex": "pnpm --filter vortex dev",
+    "build": "pnpm -r build"
+  }
+}

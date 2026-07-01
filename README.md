@@ -1,0 +1,52 @@
+# GF Game — Local 2-Player Games
+
+Five local 2-player keyboard games in one workspace.
+
+## Install
+
+```bash
+pnpm i
+```
+
+## Run
+
+```bash
+pnpm dev:tether
+pnpm dev:polarity
+pnpm dev:ricochet
+pnpm dev:echo
+pnpm dev:vortex
+```
+
+## Games
+
+| Game | Style | Summary |
+|------|-------|---------|
+| **TETHER** | Co-opetition | Spirits linked by an elastic tether — swing, slingshot, collect orbs |
+| **POLARITY** | Competitive duel | Magnetic ships flip polarity to grab and shoot a shared charged ball |
+| **RICOCHET** | Competitive duel | Tilt paddles to deflect a neon ball — smash lunge and curve spin |
+| **ECHO** | Rhythm co-op | Hit resonance on expanding pulsar rings to the beat |
+| **VORTEX** | Sumo knockout | Charge-dash ships in a shrinking arena — knock your opponent out |
+
+## Controls
+
+Shared across all games:
+
+- **Player 1:** `W A S D` move, `Left Shift` primary, `Space` secondary
+- **Player 2:** `Arrow keys` move, `Right Shift` (or `/`) primary, `Enter` secondary
+- **Global:** `Enter` start, `R` restart
+
+### RICOCHET specifics
+
+- P1: `W/S` slide paddle, `A/D` tilt
+- P2: `↑/↓` slide paddle, `←/→` tilt
+
+### ECHO specifics
+
+- `A/D` · `←/→` nudge your node along the ring track
+- `Shift` / `RShift` hit on the beat; `Space` / `Enter` focus slow-mo
+
+### VORTEX specifics
+
+- Hold `Shift` / `RShift` to charge dash, release to lunge
+- `Space` / `Enter` parry shield
