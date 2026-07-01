@@ -229,7 +229,7 @@ export class PolarityGame {
       const delta = sub(this.ball.pos, player.pos);
       const d = Math.max(28, len(delta));
       const dir = { x: delta.x / d, y: delta.y / d };
-      const magnetic = 52000 / (d * d);
+      const magnetic = 500000 / (d * d);
       const sign = player.polarity * this.ball.polarity;
       const scalar = sign > 0 ? magnetic : -magnetic;
       this.ball.vel.x += dir.x * scalar * dt;
@@ -243,7 +243,7 @@ export class PolarityGame {
     const delta = sub(p2.pos, p1.pos);
     const d = Math.max(36, len(delta));
     const dir = { x: delta.x / d, y: delta.y / d };
-    const magnetic = 20000 / (d * d);
+    const magnetic = 175000 / (d * d);
     const sign = p1.polarity * p2.polarity;
     const scalar = sign > 0 ? magnetic : -magnetic;
     p1.vel.x -= dir.x * scalar * dt;
@@ -253,8 +253,8 @@ export class PolarityGame {
   }
 
   private integrateBall(dt: number): void {
-    this.ball.vel.x *= 0.994;
-    this.ball.vel.y *= 0.994;
+    this.ball.vel.x *= 0.997;
+    this.ball.vel.y *= 0.997;
 
     const maxSpeed = 900;
     const speed = len(this.ball.vel);
