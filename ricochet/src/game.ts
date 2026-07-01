@@ -394,6 +394,24 @@ export const createGame = (width: number, height: number): Game => {
       currentMode = mode;
     },
 
+    cycleWinScore(delta: number): void {
+      if (phase !== "title") {
+        return;
+      }
+      const options = WIN_SCORE_OPTIONS;
+      const i = options.indexOf(winScore as (typeof options)[number]);
+      const nextIndex = (i < 0 ? 0 : i + delta + options.length) % options.length;
+      winScore = options[nextIndex];
+    },
+
+    cycleGoalPreset(): void {
+      if (phase !== "title") {
+        return;
+      }
+      const i = GOAL_PRESET_ORDER.indexOf(goalPreset);
+      goalPreset = GOAL_PRESET_ORDER[(i + 1) % GOAL_PRESET_ORDER.length];
+    },
+
     startRound(): void {
       phase = "playing";
       scoreP1 = 0;
@@ -528,15 +546,6 @@ export const createGame = (width: number, height: number): Game => {
       }
       if (currentMode === "rally" && (p1Hit || p2Hit) && ball.rally > 0 && ball.rally % 5 === 0) {
         audio.spin();
-      }
-
-      if (ball.pos.x - BALL_R < leftWall && ball.vel.x < 0) {
-        ball.pos.x = leftWall + BALL_R;
-        ball.vel.x = Math.abs(ball.vel.x);
-      }
-      if (ball.pos.x + BALL_R > rightWall && ball.vel.x > 0) {
-        ball.pos.x = rightWall - BALL_R;
-        ball.vel.x = -Math.abs(ball.vel.x);
       }
     },
 
@@ -684,10 +693,25 @@ export const createGame = (width: number, height: number): Game => {
     getOverlay(helpHeld: boolean): { title: string; body: string; visible: boolean } {
       const help = MODE_HELP[currentMode];
       if (phase === "title") {
-        const modeLine = `Mode: ${MODE_LABEL[currentMode]}   (1 Duel · 2 Rally · 3 Goals)`;
+        const digits: Record<ModeId, string> = { duel: "1", rally: "2", goals: "3" };
+        const modeLines = (["duel", "rally", "goals"] as ModeId[])
+          .map((m) => {
+            const marker = m === currentMode ? "▸" : " ";
+            return `${marker} ${digits[m]} ${MODE_LABEL[m]} — ${MODE_DESCRIPTION[m]}`;
+          })
+          .join("\n");
+
+        let options = "";
+        if (currentMode === "duel" || currentMode === "goals") {
+          options += `\nWin score: ${winScore}   ([ / ] to adjust)`;
+        }
+        if (currentMode === "goals") {
+          options += `\nGoal preset: ${GOAL_PRESET_LABEL[goalPreset]}   (G to cycle)`;
+        }
+
         return {
           title: "RICOCHET",
-          body: `${modeLine}\n\n${help}\n\nEnter to start  ·  R to restart  ·  Hold H for help`,
+          body: `${modeLines}\n${options}\n\nEnter to start  ·  R to restart  ·  Hold H for help`,
           visible: true
         };
       }

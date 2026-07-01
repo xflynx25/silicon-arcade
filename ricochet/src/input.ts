@@ -20,6 +20,8 @@ export type GlobalInput = {
   startPressed: boolean;
   restartPressed: boolean;
   selectMode: ModeId | null;
+  winScoreDelta: number;
+  cyclePresetPressed: boolean;
 };
 
 const isDown = (set: Set<string>, code: string): boolean => set.has(code);
@@ -66,7 +68,15 @@ export class InputManager {
     } else if (this.consumePress("Digit3")) {
       selectMode = "goals";
     }
-    return { startPressed, restartPressed, selectMode };
+    let winScoreDelta = 0;
+    if (this.consumePress("BracketLeft")) {
+      winScoreDelta -= 1;
+    }
+    if (this.consumePress("BracketRight")) {
+      winScoreDelta += 1;
+    }
+    const cyclePresetPressed = this.consumePress("KeyG");
+    return { startPressed, restartPressed, selectMode, winScoreDelta, cyclePresetPressed };
   }
 
   readPlayerOne(): PlayerInput {

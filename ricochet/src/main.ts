@@ -56,6 +56,12 @@ createFixedLoop({
     if (global.selectMode && game.phase === "title") {
       game.selectMode(global.selectMode);
     }
+    if (global.winScoreDelta !== 0) {
+      game.cycleWinScore(global.winScoreDelta);
+    }
+    if (global.cyclePresetPressed) {
+      game.cycleGoalPreset();
+    }
     if (global.startPressed && game.phase === "title") {
       audio.initOnGesture();
       game.startRound();
