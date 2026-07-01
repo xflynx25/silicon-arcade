@@ -454,8 +454,38 @@ export const createGame = (width: number, height: number): Game => {
         return;
       }
 
-      nodeAngleP1 = normalizeAngle(nodeAngleP1 + p1.x * scaledDt * SLIDE_SPEED);
-      nodeAngleP2 = normalizeAngle(nodeAngleP2 + p2.x * scaledDt * SLIDE_SPEED);
+      if (autoTempo) {
+        autoTempoTimer -= dt;
+        if (autoTempoTimer <= 0) {
+          autoTempoTimer += AUTO_TEMPO_INTERVAL;
+          const next = baseBpm + autoTempoDir * BPM_STEP;
+          if (next > MAX_BASE_BPM || next < MIN_BASE_BPM) {
+            autoTempoDir *= -1;
+          }
+          changeBaseBpm(autoTempoDir * BPM_STEP);
+        }
+      }
+
+      if (stunP1 > 0) {
+        stunP1 = Math.max(0, stunP1 - scaledDt);
+      }
+      if (stunP2 > 0) {
+        stunP2 = Math.max(0, stunP2 - scaledDt);
+      }
+
+      if (p1.jam) {
+        fireJam(1, audio);
+      }
+      if (p2.jam) {
+        fireJam(2, audio);
+      }
+
+      if (stunP1 <= 0) {
+        nodeAngleP1 = normalizeAngle(nodeAngleP1 + p1.x * scaledDt * SLIDE_SPEED);
+      }
+      if (stunP2 <= 0) {
+        nodeAngleP2 = normalizeAngle(nodeAngleP2 + p2.x * scaledDt * SLIDE_SPEED);
+      }
 
       if (p1.secondary && focusCooldown <= 0 && focusTimer <= 0) {
         focusTimer = 1.4;
@@ -581,22 +611,40 @@ export const createGame = (width: number, height: number): Game => {
         drawGuide(nodeAngleP2, targetRing.p2Arc, 310);
       }
 
-      const drawNode = (angle: number, hue: number, label: string): void => {
+      const drawNode = (
+        angle: number,
+        hue: number,
+        label: string,
+        jam: number,
+        stunned: boolean
+      ): void => {
         const pos = nodePos(angle);
-        ctx.fillStyle = `hsl(${hue}, 100%, 60%)`;
-        ctx.shadowColor = `hsl(${hue}, 100%, 50%)`;
-        ctx.shadowBlur = 18;
+        ctx.fillStyle = stunned ? "hsl(0, 0%, 45%)" : `hsl(${hue}, 100%, 60%)`;
+        ctx.shadowColor = stunned ? "rgba(140,140,140,0.6)" : `hsl(${hue}, 100%, 50%)`;
+        ctx.shadowBlur = stunned ? 8 : 18;
         ctx.beginPath();
         ctx.arc(pos.x, pos.y, 14, 0, Math.PI * 2);
         ctx.fill();
+
+        ctx.shadowBlur = 0;
+        const charged = jam >= JAM_CHARGE_MAX;
+        ctx.strokeStyle = charged
+          ? "hsla(50, 100%, 65%, 0.95)"
+          : `hsla(${hue}, 90%, 60%, 0.5)`;
+        ctx.lineWidth = charged ? 3 : 2;
+        ctx.beginPath();
+        ctx.arc(pos.x, pos.y, 19, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * jam);
+        ctx.stroke();
+
         ctx.fillStyle = "rgba(255,255,255,0.8)";
         ctx.font = "bold 11px Trebuchet MS";
         ctx.textAlign = "center";
-        ctx.fillText(label, pos.x, pos.y - 22);
+        const tag = stunned ? `${label} STUNNED` : charged ? `${label} JAM!` : label;
+        ctx.fillText(tag, pos.x, pos.y - 24);
       };
 
-      drawNode(nodeAngleP1, 200, "P1");
-      drawNode(nodeAngleP2, 310, "P2");
+      drawNode(nodeAngleP1, 200, "P1", jamP1, stunP1 > 0);
+      drawNode(nodeAngleP2, 310, "P2", jamP2, stunP2 > 0);
 
       for (const flash of hitFlashes) {
         const pos = nodePos(flash.angle);
@@ -635,7 +683,7 @@ export const createGame = (width: number, height: number): Game => {
         left: `P1 ${scoreP1}`,
         center:
           phase === "playing"
-            ? `Wave ${wave} · Combo ${combo} · ${bpm} BPM`
+            ? `Wave ${wave} · Combo ${combo} · ${bpm} BPM${autoTempo ? " ⟳auto" : ""}`
             : phase === "waveClear"
               ? `Wave ${wave - 1} ascended!`
               : "",
@@ -649,7 +697,7 @@ export const createGame = (width: number, height: number): Game => {
           title: "ECHO",
           body:
             HELP_BODY +
-            `\n\nTempo: ${baseBpm} BPM  ·  [ ] to adjust` +
+            `\n\nTempo: ${baseBpm} BPM  ·  [ ] to adjust  ·  T auto-tempo ${autoTempo ? "ON" : "OFF"}` +
             "\nEnter to start  ·  R to restart  ·  Hold H for help",
           visible: true
         };
