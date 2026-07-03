@@ -11,7 +11,7 @@
     "dev:echo": "pnpm --filter echo dev",
     "dev:vortex": "pnpm --filter vortex dev",
     "dev:nova": "pnpm --filter nova dev",
-    "build": "pnpm -r build"
+    "build": "pnpm -r build && tsc --noEmit && vite build && node scripts/assemble-dist.mjs"
   },
   "devDependencies": {
     "typescript": "^5.5.4",
