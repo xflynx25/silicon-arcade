@@ -3,6 +3,8 @@
   "private": true,
   "packageManager": "pnpm@9.0.0",
   "scripts": {
+    "dev": "vite",
+    "arcade": "vite",
     "dev:tether": "pnpm --filter tether dev",
     "dev:polarity": "pnpm --filter polarity dev",
     "dev:ricochet": "pnpm --filter ricochet dev",
@@ -10,5 +12,9 @@
     "dev:vortex": "pnpm --filter vortex dev",
     "dev:nova": "pnpm --filter nova dev",
     "build": "pnpm -r build"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.4",
+    "vite": "^5.3.5"
   }
 }
