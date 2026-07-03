@@ -51,9 +51,10 @@ export class InputManager {
     this.pressed.clear();
   }
 
-  consumeGlobal(): GlobalInput {
+  consumeGlobal(allowStart: boolean): GlobalInput {
     const startPressed =
-      this.consumePress("Enter") || this.consumePress("NumpadEnter");
+      allowStart &&
+      (this.consumePress("Enter") || this.consumePress("NumpadEnter"));
     const restartPressed = this.consumePress("KeyR");
     return { startPressed, restartPressed };
   }

@@ -52,8 +52,8 @@ window.addEventListener(
 
 createFixedLoop({
   update(dt: number): void {
-    const global = input.consumeGlobal();
-    if (global.startPressed && game.phase === "title") {
+    const global = input.consumeGlobal(game.phase === "title");
+    if (global.startPressed) {
       audio.initOnGesture();
       game.startRound();
     }
