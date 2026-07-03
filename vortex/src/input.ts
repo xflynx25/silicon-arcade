@@ -105,6 +105,13 @@ export class InputManager {
     return this.consumeRelease("ShiftRight") || this.consumeRelease("Slash");
   }
 
+  secondaryPressed(player: 1 | 2): boolean {
+    if (player === 1) {
+      return this.consumePress("Space");
+    }
+    return this.consumePress("Enter") || this.consumePress("NumpadEnter");
+  }
+
   isHeld(code: string): boolean {
     return this.held.has(code);
   }

@@ -440,7 +440,7 @@ export class PolarityGame {
     const jx = (Math.random() - 0.5) * this.shake;
     const jy = (Math.random() - 0.5) * this.shake;
     this.ctx.save();
-    this.ctx.setTransform(1, 0, 0, 1, jx, jy);
+    this.ctx.translate(jx, jy);
     this.drawBackground();
     this.drawGoals();
     this.drawFieldLines();

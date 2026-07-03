@@ -1,7 +1,7 @@
 import type { InputManager, PlayerInput } from "./input";
 import { ParticleSystem } from "./particles";
 import { AudioSystem } from "./audio";
-import { add, clamp, dist, len, normalize, scale, sub, vec, type Vec } from "./vec";
+import { add, clamp, dist, len, lerp, normalize, scale, sub, vec, type Vec } from "./vec";
 
 export type GamePhase = "title" | "playing" | "roundEnd" | "matchEnd";
 
@@ -81,26 +81,30 @@ const resolveCircleCollision = (
     return;
   }
 
-  const parryA = a.parry > 0;
-  const parryB = b.parry > 0;
-  let restitution = 1.1;
-  if (parryA || parryB) {
-    restitution = 2.2;
-    if (parryA) {
-      audio.parry();
-    }
-    if (parryB) {
-      audio.parry();
-    }
+  // Quality fades from 1 (just activated) to 0 (window about to expire), so
+  // landing the hit right as you press parry deflects hardest.
+  const qA = clamp(a.parry / PARRY_TIME, 0, 1);
+  const qB = clamp(b.parry / PARRY_TIME, 0, 1);
+  const parrying = qA > 0 || qB > 0;
+  const restitution = parrying ? lerp(1.1, 2.2, Math.max(qA, qB)) : 1.1;
+  if (parrying) {
+    audio.parry();
   } else {
     audio.collision();
   }
 
-  const impulse = (-(1 + restitution) * velAlongNormal) / 2;
-  a.vel = sub(a.vel, scale(n, impulse));
-  b.vel = add(b.vel, scale(n, impulse));
+  // A perfect solo parry (advantage = 1) pins the defender's share to 0 and
+  // doubles the attacker's, so the defender stands still and the attacker is
+  // fully deflected. Equal/no parries fall back to the original 1/1 split.
+  const advantage = clamp(qA - qB, -1, 1);
+  const shareA = 1 - advantage;
+  const shareB = 1 + advantage;
 
-  const impact = Math.abs(impulse);
+  const impulse = (-(1 + restitution) * velAlongNormal) / 2;
+  a.vel = sub(a.vel, scale(n, impulse * shareA));
+  b.vel = add(b.vel, scale(n, impulse * shareB));
+
+  const impact = Math.abs(impulse) * Math.max(shareA, shareB);
   shakeRef.value = Math.max(shakeRef.value, impact * 0.08);
   particles.emit(
     vec((a.pos.x + b.pos.x) * 0.5, (a.pos.y + b.pos.y) * 0.5),
@@ -195,6 +199,7 @@ export const createGame = (width: number, height: number): Game => {
     ship: Ship,
     input: PlayerInput,
     primaryReleased: boolean,
+    secondaryPressed: boolean,
     dt: number,
     audio: AudioSystem
   ): void => {
@@ -219,7 +224,7 @@ export const createGame = (width: number, height: number): Game => {
       ship.charge = Math.max(0, ship.charge - 4 * dt);
     }
 
-    if (input.secondary && ship.parry <= 0 && ship.parryCd <= 0) {
+    if (secondaryPressed && ship.parryCd <= 0) {
       ship.parry = PARRY_TIME;
       ship.parryCd = PARRY_CD;
       audio.parry();
@@ -312,8 +317,8 @@ export const createGame = (width: number, height: number): Game => {
 
       arenaRadius = Math.max(minArenaRadius, arenaRadius - dt * 8);
 
-      updateShip(ship1, p1, input.primaryReleased(1), dt, audio);
-      updateShip(ship2, p2, input.primaryReleased(2), dt, audio);
+      updateShip(ship1, p1, input.primaryReleased(1), input.secondaryPressed(1), dt, audio);
+      updateShip(ship2, p2, input.primaryReleased(2), input.secondaryPressed(2), dt, audio);
 
       ship1.pos = add(ship1.pos, scale(ship1.vel, dt));
       ship2.pos = add(ship2.pos, scale(ship2.vel, dt));
