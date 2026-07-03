@@ -36,6 +36,14 @@ Shared across all games:
 - **Player 2:** `Arrow keys` move, `Right Shift` (or `/`) primary, `Enter` secondary
 - **Global:** `Enter` start, `R` restart, hold `H` for the in-game How to Play card
 
+### POLARITY specifics
+
+- The shared core carries a charge — **opposite charges attract, like charges repel**
+- Flip your polarity to pull the core toward you, then shove it into the rival's glowing gate
+- `Space` / `Enter` **dash** — lunges you and briefly *grabs* the core toward you
+- `E` / `.` **burst** — a shockwave that knocks the core and your rival away (cooldown)
+- Any time: `[` / `]` adjust **Field Strength** (0.4×–2.5×) to make all forces weaker or stronger
+
 ### RICOCHET specifics
 
 - P1: `W/S` slide paddle, `A/D` tilt

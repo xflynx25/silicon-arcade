@@ -74,4 +74,8 @@ export class AudioSystem {
   dash(): void {
     this.play({ freq: 140, duration: 0.09, type: "triangle", gain: 0.03, slideTo: 50 });
   }
+
+  burst(): void {
+    this.play({ freq: 320, duration: 0.28, type: "sawtooth", gain: 0.05, slideTo: 70 });
+  }
 }

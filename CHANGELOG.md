@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-07-03
+
+- **POLARITY**: rewrote the how-to-play card to actually explain the magnetism (opposite charges attract, like charges repel; flip to pull the core in and shove it at the rival's gate).
+- **POLARITY**: added a live-tunable **Field Strength** knob (`[` / `]`, 0.4×–2.5×) that scales every magnetic force — core pull, player-vs-player pull, and burst — so effects can be dialed weaker or stronger; shown in the HUD and on the title/end cards.
+- **POLARITY**: reworked **Dash** into a scoop — for a short window after dashing the core is pulled hard toward you regardless of polarity, so a well-timed dash grabs it. Fixed the force sign so the grab attracts rather than repels.
+- **POLARITY**: added a second ability, **Burst** (`E` / `.`), a cooldown shockwave that knocks the core and your rival radially away; player rings show grab flare and burst recharge.
+
 ## 2026-07-01 (continued)
 
 - **TETHER**: replaced passive stability drain with health — void contact starts a slow bleed, and a co-op prism pickup stops it.
