@@ -22,9 +22,11 @@ export type GlobalInput = {
   restartPressed: boolean;
   selectMode: ModeId | null;
   winScoreDelta: number;
+  countDelta: number;
   sizeDelta: number;
   driftDelta: number;
   disappearDelta: number;
+  disappearJumpToggled: boolean;
   rangeDelta: number;
   freeMoveToggled: boolean;
 };
@@ -81,9 +83,11 @@ export class InputManager {
       winScoreDelta += 1;
     }
     // Shift+key decreases, plain key increases (matches the "G / g" hint)
+    const countDelta = this.consumeAdjust("KeyN");
     const sizeDelta = this.consumeAdjust("KeyG");
     const driftDelta = this.consumeAdjust("KeyM");
     const disappearDelta = this.consumeAdjust("KeyD");
+    const disappearJumpToggled = this.consumePress("KeyJ");
     let rangeDelta = 0;
     if (this.consumePress("Comma")) {
       rangeDelta -= 1;
@@ -97,9 +101,11 @@ export class InputManager {
       restartPressed,
       selectMode,
       winScoreDelta,
+      countDelta,
       sizeDelta,
       driftDelta,
       disappearDelta,
+      disappearJumpToggled,
       rangeDelta,
       freeMoveToggled
     };

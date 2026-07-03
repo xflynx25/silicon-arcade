@@ -4,9 +4,12 @@ import { AudioSystem } from "./audio";
 import {
   controlsHelp,
   DEFAULT_GOAL_SETTINGS,
+  disappearJumpLabel,
   DISAPPEAR_LABELS,
   DISAPPEAR_STEPS,
   DISAPPEAR_VISIBLE_FRAC,
+  GOAL_COUNT_LABELS,
+  GOAL_COUNT_STEPS,
   GOAL_DRIFT_LABELS,
   GOAL_DRIFT_STEPS,
   GOAL_SIZE_LABELS,
@@ -69,6 +72,7 @@ export type Game = {
   selectMode: (mode: ModeId) => void;
   cycleWinScore: (delta: number) => void;
   adjustSetting: (kind: SettingKind, delta: number) => void;
+  toggleDisappearJump: () => void;
   toggleFreeMove: () => void;
   startRound: () => void;
   restartRound: () => void;
@@ -168,14 +172,14 @@ const reflectBallOffSegment = (
 
   if (smash > 0) {
     audio.smash();
-    particles.emit(closest, 16, 55, 180);
+    particles.emit(closest, 8, 55, 180);
   } else if (spinReady) {
     audio.spin();
     ball.spin = clamp(ball.spin + (Math.random() > 0.5 ? 1 : -1) * 1.2, -3, 3);
-    particles.emit(closest, 10, 200, 140);
+    particles.emit(closest, 5, 200, 140);
   } else {
     audio.bounce();
-    particles.emit(closest, 8, 180, 100);
+    particles.emit(closest, 4, 180, 100);
   }
   return true;
 };
@@ -261,19 +265,30 @@ export const createGame = (width: number, height: number): Game => {
     const goalH = GOAL_SIZE_STEPS[settings.sizeIdx] * (h - 2 * WALL_PAD);
     const drift = GOAL_DRIFT_STEPS[settings.driftIdx];
     const period = DISAPPEAR_STEPS[settings.disappearIdx];
-    const mid = h * 0.5;
-    const make = (side: "left" | "right", vy: number, t: number): Goal => ({
-      side,
-      y: mid,
-      h: goalH,
-      vy,
-      disappearPeriod: period,
-      t,
-      visible: true
-    });
-    // opposite drift directions and offset disappear phases so the two goals
-    // never line up in lockstep
-    return [make("left", drift, 0), make("right", -drift, period * 0.5)];
+    const count = GOAL_COUNT_STEPS[settings.countIdx];
+    const minY = WALL_PAD + goalH * 0.5;
+    const maxY = h - WALL_PAD - goalH * 0.5;
+    const span = maxY - minY;
+    const out: Goal[] = [];
+    for (const side of ["left", "right"] as const) {
+      // left drifts down, right drifts up; stagger disappear phase per goal so
+      // they never vanish in lockstep
+      const vy = side === "left" ? drift : -drift;
+      for (let i = 0; i < count; i += 1) {
+        const frac = count === 1 ? 0.5 : i / (count - 1);
+        const phase = ((i + (side === "right" ? 0.5 : 0)) / count) % 1;
+        out.push({
+          side,
+          y: minY + frac * span,
+          h: goalH,
+          vy,
+          disappearPeriod: period,
+          t: period * phase,
+          visible: true
+        });
+      }
+    }
+    return out;
   };
 
   const setupMode = (): void => {
@@ -301,8 +316,10 @@ export const createGame = (width: number, height: number): Game => {
         g.t += dt;
         if (g.t >= g.disappearPeriod) {
           g.t -= g.disappearPeriod;
-          // reappear somewhere new — the whole point of "disappearing"
-          g.y = randomGoalY(g.h);
+          // reappear somewhere new, or stay put and keep riding its drift
+          if (settings.disappearJump) {
+            g.y = randomGoalY(g.h);
+          }
         }
         g.visible = g.t < g.disappearPeriod * DISAPPEAR_VISIBLE_FRAC;
       } else {
@@ -419,7 +436,9 @@ export const createGame = (width: number, height: number): Game => {
         return;
       }
       const clampIdx = (i: number, len: number): number => clamp(i + delta, 0, len - 1);
-      if (kind === "size") {
+      if (kind === "count") {
+        settings.countIdx = clampIdx(settings.countIdx, GOAL_COUNT_STEPS.length);
+      } else if (kind === "size") {
         settings.sizeIdx = clampIdx(settings.sizeIdx, GOAL_SIZE_STEPS.length);
       } else if (kind === "drift") {
         settings.driftIdx = clampIdx(settings.driftIdx, GOAL_DRIFT_STEPS.length);
@@ -428,6 +447,13 @@ export const createGame = (width: number, height: number): Game => {
       } else if (kind === "range") {
         settings.moveRangeIdx = clampIdx(settings.moveRangeIdx, MOVE_RANGE_STEPS.length);
       }
+    },
+
+    toggleDisappearJump(): void {
+      if (phase !== "title") {
+        return;
+      }
+      settings.disappearJump = !settings.disappearJump;
     },
 
     toggleFreeMove(): void {
@@ -695,7 +721,9 @@ export const createGame = (width: number, height: number): Game => {
       ctx.globalCompositeOperation = "lighter";
       ctx.fillStyle = `hsla(55, 100%, 70%, ${glow})`;
       ctx.shadowColor = `hsla(55, 100%, 60%, ${glow})`;
-      ctx.shadowBlur = 18 + ball.rally * 2;
+      // cap the rally-driven blur — an ever-growing shadowBlur tanks the frame
+      // rate during long rallies
+      ctx.shadowBlur = 18 + Math.min(ball.rally, 12) * 2;
       ctx.beginPath();
       ctx.arc(ball.pos.x, ball.pos.y, BALL_R, 0, Math.PI * 2);
       ctx.fill();
@@ -735,9 +763,13 @@ export const createGame = (width: number, height: number): Game => {
           opts.push(`Win score: ${winScore}   ([ / ])`);
         }
         if (currentMode === "goals") {
+          opts.push(`Goals: ${GOAL_COUNT_LABELS[settings.countIdx]}   (N / n)`);
           opts.push(`Goal size: ${GOAL_SIZE_LABELS[settings.sizeIdx]}   (G / g)`);
           opts.push(`Goal drift: ${GOAL_DRIFT_LABELS[settings.driftIdx]}   (M / m)`);
           opts.push(`Disappear: ${DISAPPEAR_LABELS[settings.disappearIdx]}   (D / d)`);
+          if (settings.disappearIdx > 0) {
+            opts.push(`Reappear: ${disappearJumpLabel(settings.disappearJump)}   (J)`);
+          }
         }
         opts.push(`Free move: ${settings.freeMove ? "On" : "Off"}   (F)`);
         if (settings.freeMove) {

@@ -59,6 +59,9 @@ createFixedLoop({
     if (global.winScoreDelta !== 0) {
       game.cycleWinScore(global.winScoreDelta);
     }
+    if (global.countDelta !== 0) {
+      game.adjustSetting("count", global.countDelta);
+    }
     if (global.sizeDelta !== 0) {
       game.adjustSetting("size", global.sizeDelta);
     }
@@ -67,6 +70,9 @@ createFixedLoop({
     }
     if (global.disappearDelta !== 0) {
       game.adjustSetting("disappear", global.disappearDelta);
+    }
+    if (global.disappearJumpToggled) {
+      game.toggleDisappearJump();
     }
     if (global.rangeDelta !== 0) {
       game.adjustSetting("range", global.rangeDelta);

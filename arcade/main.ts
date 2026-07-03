@@ -95,8 +95,22 @@ const boot = (game: Game): void => {
   document.body.classList.add("playing");
   stage.hidden = false;
 
-  // Give the game the keyboard immediately.
-  frame.addEventListener("load", () => frame.contentWindow?.focus());
+  // Give the game the keyboard immediately, and let Esc quit even while the
+  // iframe holds focus — the parent-window listener below never sees keys typed
+  // inside a focused same-origin child, so we hook the child window too.
+  frame.addEventListener("load", () => {
+    frame.contentWindow?.focus();
+    try {
+      frame.contentWindow?.addEventListener("keydown", (e) => {
+        if ((e as KeyboardEvent).key === "Escape") {
+          e.preventDefault();
+          quit();
+        }
+      });
+    } catch {
+      // cross-origin child: fall back to the parent-window listener
+    }
+  });
 };
 
 const quit = (): void => {

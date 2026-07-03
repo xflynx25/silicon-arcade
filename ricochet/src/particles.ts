@@ -45,11 +45,11 @@ export class ParticleSystem {
   render(ctx: CanvasRenderingContext2D): void {
     ctx.save();
     ctx.globalCompositeOperation = "lighter";
+    // No per-particle shadowBlur — setting it on every dot is a canvas hot spot
+    // that stalls the frame; additive blending keeps them bright on its own.
     for (const p of this.pool) {
       const t = Math.max(0, p.life / p.maxLife);
       ctx.fillStyle = `hsla(${p.hue}, 100%, 65%, ${t})`;
-      ctx.shadowColor = `hsla(${p.hue}, 100%, 60%, ${t})`;
-      ctx.shadowBlur = 10 * t;
       ctx.beginPath();
       ctx.arc(p.pos.x, p.pos.y, p.size * t, 0, Math.PI * 2);
       ctx.fill();

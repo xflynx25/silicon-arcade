@@ -44,6 +44,10 @@ export const WIN_SCORE_OPTIONS = [3, 5, 7, 11] as const;
 
 // ---- tunable goal + movement settings (index into these step arrays) ----
 
+// number of goal zones per side
+export const GOAL_COUNT_STEPS = [1, 2, 3];
+export const GOAL_COUNT_LABELS = ["1", "2", "3"];
+
 // goal height as a fraction of the playable arena height
 export const GOAL_SIZE_STEPS = [0.2, 0.32, 0.45, 0.6, 0.78];
 export const GOAL_SIZE_LABELS = ["Tiny", "Small", "Medium", "Large", "Huge"];
@@ -53,10 +57,16 @@ export const GOAL_DRIFT_STEPS = [0, 45, 90, 150];
 export const GOAL_DRIFT_LABELS = ["Off", "Slow", "Medium", "Fast"];
 
 // full disappear/reappear cycle in seconds (0 = always visible). On each cycle
-// the goal vanishes, then reappears at a fresh random position.
+// the goal vanishes, then reappears — either at a fresh random spot or in place,
+// depending on disappearJump.
 export const DISAPPEAR_STEPS = [0, 3.2, 2.2, 1.4];
 export const DISAPPEAR_LABELS = ["Off", "Slow", "Medium", "Fast"];
 export const DISAPPEAR_VISIBLE_FRAC = 0.7;
+
+// where a goal comes back after vanishing: jump to a new random spot, or
+// reappear where it is (staying on its current drift trajectory)
+export const disappearJumpLabel = (jump: boolean): string =>
+  jump ? "Elsewhere" : "In place";
 
 // how far a paddle may slide inward from its wall, as a fraction of the
 // wall-to-centre distance (only used while free move is on)
@@ -64,19 +74,23 @@ export const MOVE_RANGE_STEPS = [0.15, 0.3, 0.45, 0.6, 0.8];
 export const MOVE_RANGE_LABELS = ["15%", "30%", "45%", "60%", "80%"];
 
 export type GoalSettings = {
+  countIdx: number;
   sizeIdx: number;
   driftIdx: number;
   disappearIdx: number;
+  disappearJump: boolean;
   moveRangeIdx: number;
   freeMove: boolean;
 };
 
 export const DEFAULT_GOAL_SETTINGS: GoalSettings = {
+  countIdx: 0,
   sizeIdx: 2,
   driftIdx: 0,
   disappearIdx: 0,
+  disappearJump: true,
   moveRangeIdx: 1,
   freeMove: false
 };
 
-export type SettingKind = "size" | "drift" | "disappear" | "range";
+export type SettingKind = "count" | "size" | "drift" | "disappear" | "range";
