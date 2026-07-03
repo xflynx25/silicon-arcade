@@ -28,7 +28,7 @@ pnpm dev:nova
 | **RICOCHET** | Competitive duel / co-op / pong | Tilt paddles to deflect a neon ball — smash lunge, curve spin, and three selectable modes |
 | **ECHO** | Co-op survival | Defend the Core in the dark — ping to reveal husks, strike to destroy them, resonate together |
 | **VORTEX** | Sumo knockout | Charge-dash ships in a shrinking arena — knock your opponent out |
-| **NOVA** | Orbital duel | Comets orbit a star's gravity — slingshot for speed, ram to shatter your rival |
+| **NOVA** | Orbital duel / co-op | Comets orbit a star's gravity — slingshot for speed; ram to shatter your rival, or team up across three modes |
 
 ## Controls
 
@@ -72,9 +72,11 @@ Shared across all games:
 ### NOVA specifics
 
 - The central star's gravity constantly pulls both comets inward — thrust to steer your orbit
-- **Dive close** to the star for a gravity-assist speed boost, then use it to ram
-- Ramming: the **faster comet shatters the slower one**; near-matched speeds just bounce
+- **Dive close** to the star for a gravity-assist speed boost, then use it
 - Hold `Shift` / `RShift` to charge a **Flare** burst, release to lunge along your aim
-- `Space` / `Enter` **Shield** — a timed parry that reflects a ram and wins the exchange (cooldown)
-- Two death lines: burn up in the star's **corona** or drift out past the **void** edge
-- Any time: `[` / `]` adjust **Gravity** (0.4×–2.5×); best of 5 rounds
+- `Space` / `Enter` **Shield** — a timed parry (reflects a ram / parries a bolt; cooldown)
+- Any time: `[` / `]` adjust **Gravity** (0.4×–2.5×)
+- On title screen: `1` Duel · `2` Flares · `3` Rings, then `Enter` to start
+- **Duel** — competitive, best of 5; the **faster comet shatters the slower one** on impact (near-matched speeds just bounce). Two death lines: burn up in the star's **corona** or drift past the **void** edge
+- **Flares** — co-op survival; the star ejects plasma **bolts** you dodge (or parry with Shield) together. Corona and void are still lethal. Endurance run — tracks best survival time
+- **Rings** — co-op collection; fly either comet through glowing **rings** (gold rings worth 3) for a shared score against a 60s clock. Corona and void are soft walls here — no deaths, just flow

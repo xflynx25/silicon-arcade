@@ -4,9 +4,10 @@ import { AudioSystem } from "./audio";
 import { add, clamp, dist, len, normalize, scale, sub, vec, type Vec } from "./vec";
 
 export type GamePhase = "title" | "playing" | "roundEnd" | "matchEnd";
+export type Mode = "duel" | "flares" | "rings";
 
 const SHIP_R = 13;
-const WIN_ROUNDS = 3; // best of 5
+const WIN_ROUNDS = 3; // duel: best of 5
 
 const THRUST_ACC = 440;
 const DRAG = 0.9992; // very light — orbits should persist; gravity does the pulling
@@ -27,6 +28,17 @@ const GRAVITY_STEP = 0.15;
 const GRAVITY_MIN = 0.4;
 const GRAVITY_MAX = 2.5;
 
+// Flares (co-op survival)
+const BOLT_R = 9;
+const WAVE_EVERY = 12; // seconds per difficulty step
+
+// Rings (co-op collection)
+const RUN_TIME = 60;
+const RING_R = 26;
+const RING_TARGET = 3;
+const RING_LIFE = 9;
+const GOLDEN_CHANCE = 0.18;
+
 type Comet = {
   pos: Vec;
   vel: Vec;
@@ -36,6 +48,18 @@ type Comet = {
   hue: number;
   dashDir: Vec;
   trail: Vec[];
+};
+
+type Bolt = {
+  pos: Vec;
+  vel: Vec;
+};
+
+type Ring = {
+  pos: Vec;
+  golden: boolean;
+  life: number;
+  pulse: number;
 };
 
 export type Game = {
@@ -56,19 +80,29 @@ export type Game = {
   getOverlay: (helpHeld: boolean) => { title: string; body: string; visible: boolean };
 };
 
-const HELP_BODY =
-  "Orbital slingshot duel — the star's gravity pulls you in.\n" +
-  "Dive close to whip up speed, then ram your rival:\n" +
-  "the faster comet shatters the slower one. Best of 5.\n\n" +
-  "Burn up in the corona or drift into the void and you're out.\n\n" +
+const MODE_LABEL: Record<Mode, string> = {
+  duel: "DUEL",
+  flares: "FLARES",
+  rings: "RINGS"
+};
+
+const CONTROLS =
   "P1  ·  W A S D thrust  ·  hold Left Shift charge Flare  ·  Space Shield\n" +
   "P2  ·  Arrows thrust  ·  hold Right Shift charge Flare  ·  Enter Shield\n" +
   "[ / ]  ·  tune gravity";
+
+const formatTime = (t: number): string => {
+  const total = Math.max(0, Math.floor(t));
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  return `${m}:${s.toString().padStart(2, "0")}`;
+};
 
 export const createGame = (width: number, height: number): Game => {
   let w = width;
   let h = height;
   let phase: GamePhase = "title";
+  let mode: Mode = "duel";
   let cx = w * 0.5;
   let cy = h * 0.5;
 
@@ -77,19 +111,34 @@ export const createGame = (width: number, height: number): Game => {
   let coronaR = baseR * 0.14; // inside this = burn up
   let voidR = baseR * 0.94; // outside this = lost to the void
   let orbitR = baseR * 0.52; // spawn orbit
-  let orbitSpeed = 250;
+  const orbitSpeed = 250;
   let gm = orbitSpeed * orbitSpeed * orbitR; // GM so orbitR is a circular orbit at orbitSpeed
 
   let gravityScale = 1;
   let starPulse = 0;
   let roundTimer = 0;
+  let shake = 0;
+
+  // Duel state
   let roundCount = 0;
   let winsP1 = 0;
   let winsP2 = 0;
   let lastRoundWinner: 1 | 2 | null = null;
   let lastCause = "";
   let matchWinner: 1 | 2 | null = null;
-  let shake = 0;
+
+  // Flares state
+  const bolts: Bolt[] = [];
+  let survivalTime = 0;
+  let bestFlares = 0;
+  let flareTimer = 0;
+  let waveIndex = 0;
+
+  // Rings state
+  const rings: Ring[] = [];
+  let runTime = RUN_TIME;
+  let score = 0;
+  let bestRings = 0;
 
   const particles = new ParticleSystem();
 
@@ -144,6 +193,34 @@ export const createGame = (width: number, height: number): Game => {
   const resetArena = (): void => {
     particles.clear();
     starPulse = 0;
+    bolts.length = 0;
+    rings.length = 0;
+  };
+
+  const spawnRing = (): void => {
+    const angle = Math.random() * Math.PI * 2;
+    const rMin = coronaR + baseR * 0.14;
+    const rMax = voidR - baseR * 0.1;
+    const r = rMin + Math.random() * (rMax - rMin);
+    rings.push({
+      pos: vec(cx + Math.cos(angle) * r, cy + Math.sin(angle) * r),
+      golden: Math.random() < GOLDEN_CHANCE,
+      life: RING_LIFE,
+      pulse: Math.random() * Math.PI * 2
+    });
+  };
+
+  const spawnBolts = (): void => {
+    const count = 1 + Math.floor(waveIndex / 3);
+    const speed = 150 + waveIndex * 22;
+    for (let i = 0; i < count; i += 1) {
+      const angle = Math.random() * Math.PI * 2;
+      const dir = vec(Math.cos(angle), Math.sin(angle));
+      bolts.push({
+        pos: add(vec(cx, cy), scale(dir, coronaR + 4)),
+        vel: scale(dir, speed)
+      });
+    }
   };
 
   const updateComet = (
@@ -199,8 +276,9 @@ export const createGame = (width: number, height: number): Game => {
     }
   };
 
-  // Elastic bounce; returns the loser (1|2) if the exchange was lethal, else null.
-  const resolveCollision = (audio: AudioSystem): 1 | 2 | null => {
+  // Elastic bounce between the comets. When `lethal`, returns the loser (1|2) if
+  // the exchange was a kill, else null. Co-op modes pass lethal=false (just bounce).
+  const resolveCollision = (audio: AudioSystem, lethal: boolean): 1 | 2 | null => {
     const delta = sub(comet2.pos, comet1.pos);
     const d = len(delta);
     const minDist = SHIP_R * 2;
@@ -227,6 +305,12 @@ export const createGame = (width: number, height: number): Game => {
     }
 
     const mid = vec((comet1.pos.x + comet2.pos.x) * 0.5, (comet1.pos.y + comet2.pos.y) * 0.5);
+
+    if (!lethal) {
+      audio.ram();
+      particles.emit(mid, 8, 200, 150);
+      return null;
+    }
 
     // A shield reflects the ram — the shielded comet always wins the exchange.
     if (comet1.shield > 0 && comet2.shield <= 0) {
@@ -257,7 +341,25 @@ export const createGame = (width: number, height: number): Game => {
     return null;
   };
 
-  // dist to the star as a share of the corona (0 = at corona edge, 1 = safe).
+  // Keep a comet inside the ring of play without killing it (co-op modes).
+  const softBoundary = (c: Comet): void => {
+    const toStar = sub(vec(cx, cy), c.pos);
+    const d = len(toStar);
+    const inward = normalize(toStar);
+    const inner = coronaR + SHIP_R;
+    const outer = voidR - SHIP_R;
+    if (d < inner) {
+      c.pos = sub(vec(cx, cy), scale(inward, inner));
+      const vn = c.vel.x * inward.x + c.vel.y * inward.y;
+      c.vel = sub(c.vel, scale(inward, 2 * vn));
+      shake = Math.max(shake, 4);
+    } else if (d > outer) {
+      c.pos = sub(vec(cx, cy), scale(inward, outer));
+      const vn = c.vel.x * inward.x + c.vel.y * inward.y;
+      c.vel = sub(c.vel, scale(inward, 2 * vn));
+    }
+  };
+
   const coronaDanger = (c: Comet): number => {
     const d = dist(c.pos, vec(cx, cy));
     return clamp(1 - (d - coronaR) / (baseR * 0.22), 0, 1);
@@ -268,7 +370,13 @@ export const createGame = (width: number, height: number): Game => {
     return clamp((d - voidR * 0.72) / (voidR * 0.28), 0, 1);
   };
 
-  const awardRound = (winner: 1 | 2, cause: string, deadPos: Vec, deadHue: number, audio: AudioSystem): void => {
+  const awardRound = (
+    winner: 1 | 2,
+    cause: string,
+    deadPos: Vec,
+    deadHue: number,
+    audio: AudioSystem
+  ): void => {
     lastRoundWinner = winner;
     lastCause = cause;
     shake = 16;
@@ -282,6 +390,163 @@ export const createGame = (width: number, height: number): Game => {
     phase = matchWinner !== null ? "matchEnd" : "roundEnd";
     roundTimer = 1.6;
     audio.shatter();
+  };
+
+  // Co-op run failed — record the run and show the end card.
+  const endCoopRun = (deadPos: Vec, deadHue: number, cause: string, audio: AudioSystem): void => {
+    lastCause = cause;
+    shake = 16;
+    particles.emit(deadPos, 54, deadHue, 260);
+    bestFlares = Math.max(bestFlares, survivalTime);
+    phase = "matchEnd";
+    roundTimer = 0;
+    audio.shatter();
+  };
+
+  const beginMode = (): void => {
+    resetArena();
+    resetComets();
+    winsP1 = 0;
+    winsP2 = 0;
+    matchWinner = null;
+    roundCount = 1;
+    lastRoundWinner = null;
+    lastCause = "";
+    survivalTime = 0;
+    waveIndex = 0;
+    flareTimer = mode === "flares" ? 2 : 0;
+    runTime = RUN_TIME;
+    score = 0;
+  };
+
+  const updateDuel = (audio: AudioSystem): void => {
+    const collisionLoser = resolveCollision(audio, true);
+    if (collisionLoser !== null) {
+      const winner: 1 | 2 = collisionLoser === 1 ? 2 : 1;
+      const dead = collisionLoser === 1 ? comet1 : comet2;
+      awardRound(winner, "Shattered on impact", dead.pos, dead.hue, audio);
+      return;
+    }
+
+    // Boundary deaths: corona (too close) and the void (too far).
+    const d1 = dist(comet1.pos, vec(cx, cy));
+    const d2 = dist(comet2.pos, vec(cx, cy));
+    const burn1 = d1 < coronaR;
+    const burn2 = d2 < coronaR;
+    const void1 = d1 > voidR;
+    const void2 = d2 > voidR;
+    const out1 = burn1 || void1;
+    const out2 = burn2 || void2;
+
+    if (out1 || out2) {
+      let loser: 1 | 2;
+      if (out1 && out2) {
+        const ex1 = burn1 ? coronaR - d1 : d1 - voidR;
+        const ex2 = burn2 ? coronaR - d2 : d2 - voidR;
+        loser = ex1 >= ex2 ? 1 : 2;
+      } else {
+        loser = out1 ? 1 : 2;
+      }
+      const winner: 1 | 2 = loser === 1 ? 2 : 1;
+      const burned = loser === 1 ? burn1 : burn2;
+      const dead = loser === 1 ? comet1 : comet2;
+      if (burned) {
+        audio.burn();
+      }
+      awardRound(winner, burned ? "Burned in the star" : "Lost to the void", dead.pos, dead.hue, audio);
+    }
+  };
+
+  const updateFlares = (dt: number, audio: AudioSystem): void => {
+    survivalTime += dt;
+    waveIndex = Math.floor(survivalTime / WAVE_EVERY);
+
+    resolveCollision(audio, false);
+
+    // Emit plasma bolts from the star on a wave-scaled cadence.
+    flareTimer -= dt;
+    if (flareTimer <= 0) {
+      spawnBolts();
+      flareTimer = Math.max(0.55, 1.9 - waveIndex * 0.15);
+    }
+
+    for (let i = bolts.length - 1; i >= 0; i -= 1) {
+      const b = bolts[i];
+      b.pos = add(b.pos, scale(b.vel, dt));
+      const d = dist(b.pos, vec(cx, cy));
+      if (d > voidR + 40) {
+        bolts.splice(i, 1);
+        continue;
+      }
+      let consumed = false;
+      for (const c of [comet1, comet2]) {
+        if (dist(b.pos, c.pos) < SHIP_R + BOLT_R) {
+          if (c.shield > 0) {
+            // Shield parries the bolt.
+            particles.emit(b.pos, 12, 45, 180);
+            audio.shield();
+            consumed = true;
+          } else {
+            endCoopRun(c.pos, c.hue, `Struck by a flare · lasted ${formatTime(survivalTime)}`, audio);
+            return;
+          }
+        }
+      }
+      if (consumed) {
+        bolts.splice(i, 1);
+      }
+    }
+
+    // Corona / void are still lethal in survival.
+    for (const c of [comet1, comet2]) {
+      const d = dist(c.pos, vec(cx, cy));
+      if (d < coronaR) {
+        audio.burn();
+        endCoopRun(c.pos, c.hue, `Burned in the star · lasted ${formatTime(survivalTime)}`, audio);
+        return;
+      }
+      if (d > voidR) {
+        endCoopRun(c.pos, c.hue, `Lost to the void · lasted ${formatTime(survivalTime)}`, audio);
+        return;
+      }
+    }
+  };
+
+  const updateRings = (dt: number, audio: AudioSystem): void => {
+    runTime -= dt;
+
+    resolveCollision(audio, false);
+    softBoundary(comet1);
+    softBoundary(comet2);
+
+    while (rings.length < RING_TARGET) {
+      spawnRing();
+    }
+
+    for (let i = rings.length - 1; i >= 0; i -= 1) {
+      const ring = rings[i];
+      ring.life -= dt;
+      ring.pulse += dt * 3;
+      if (ring.life <= 0) {
+        rings.splice(i, 1);
+        continue;
+      }
+      const hit = dist(ring.pos, comet1.pos) < RING_R || dist(ring.pos, comet2.pos) < RING_R;
+      if (hit) {
+        const gain = ring.golden ? 3 : 1;
+        score += gain;
+        particles.emit(ring.pos, ring.golden ? 26 : 14, ring.golden ? 50 : 160, 200);
+        audio.flare();
+        rings.splice(i, 1);
+      }
+    }
+
+    if (runTime <= 0) {
+      runTime = 0;
+      bestRings = Math.max(bestRings, score);
+      lastCause = "Time!";
+      phase = "matchEnd";
+    }
   };
 
   return {
@@ -298,22 +563,12 @@ export const createGame = (width: number, height: number): Game => {
 
     startRound(): void {
       phase = "playing";
-      winsP1 = 0;
-      winsP2 = 0;
-      matchWinner = null;
-      roundCount = 1;
-      resetArena();
-      resetComets();
+      beginMode();
     },
 
     restartRound(): void {
       phase = "playing";
-      winsP1 = 0;
-      winsP2 = 0;
-      matchWinner = null;
-      roundCount = 1;
-      resetArena();
-      resetComets();
+      beginMode();
     },
 
     update(dt: number, p1: PlayerInput, p2: PlayerInput, input: InputManager, audio: AudioSystem): void {
@@ -327,6 +582,17 @@ export const createGame = (width: number, height: number): Game => {
       }
       if (input.consumePress("BracketRight")) {
         gravityScale = clamp(gravityScale + GRAVITY_STEP, GRAVITY_MIN, GRAVITY_MAX);
+      }
+
+      // Mode selection on the title screen.
+      if (phase === "title") {
+        if (input.consumePress("Digit1")) {
+          mode = "duel";
+        } else if (input.consumePress("Digit2")) {
+          mode = "flares";
+        } else if (input.consumePress("Digit3")) {
+          mode = "rings";
+        }
       }
 
       if (phase === "roundEnd" || phase === "matchEnd") {
@@ -357,41 +623,12 @@ export const createGame = (width: number, height: number): Game => {
         }
       }
 
-      const collisionLoser = resolveCollision(audio);
-      if (collisionLoser !== null) {
-        const winner: 1 | 2 = collisionLoser === 1 ? 2 : 1;
-        const dead = collisionLoser === 1 ? comet1 : comet2;
-        awardRound(winner, "Shattered on impact", dead.pos, dead.hue, audio);
-        return;
-      }
-
-      // Boundary deaths: corona (too close) and the void (too far).
-      const d1 = dist(comet1.pos, vec(cx, cy));
-      const d2 = dist(comet2.pos, vec(cx, cy));
-      const burn1 = d1 < coronaR;
-      const burn2 = d2 < coronaR;
-      const void1 = d1 > voidR;
-      const void2 = d2 > voidR;
-      const out1 = burn1 || void1;
-      const out2 = burn2 || void2;
-
-      if (out1 || out2) {
-        let loser: 1 | 2;
-        if (out1 && out2) {
-          // Both gone at once — the one further past its line loses.
-          const ex1 = burn1 ? coronaR - d1 : d1 - voidR;
-          const ex2 = burn2 ? coronaR - d2 : d2 - voidR;
-          loser = ex1 >= ex2 ? 1 : 2;
-        } else {
-          loser = out1 ? 1 : 2;
-        }
-        const winner: 1 | 2 = loser === 1 ? 2 : 1;
-        const burned = loser === 1 ? burn1 : burn2;
-        const dead = loser === 1 ? comet1 : comet2;
-        if (burned) {
-          audio.burn();
-        }
-        awardRound(winner, burned ? "Burned in the star" : "Lost to the void", dead.pos, dead.hue, audio);
+      if (mode === "duel") {
+        updateDuel(audio);
+      } else if (mode === "flares") {
+        updateFlares(dt, audio);
+      } else {
+        updateRings(dt, audio);
       }
     },
 
@@ -428,6 +665,36 @@ export const createGame = (width: number, height: number): Game => {
       ctx.arc(cx, cy, voidR, 0, Math.PI * 2);
       ctx.stroke();
       ctx.restore();
+
+      // Collectible rings (Rings mode).
+      for (const ring of rings) {
+        const glow = 0.6 + Math.sin(ring.pulse) * 0.2;
+        const fade = clamp(ring.life / RING_LIFE, 0, 1);
+        const hue = ring.golden ? 48 : 165;
+        ctx.save();
+        ctx.globalCompositeOperation = "lighter";
+        ctx.strokeStyle = `hsla(${hue}, 100%, 65%, ${glow * fade})`;
+        ctx.shadowColor = `hsl(${hue}, 100%, 55%)`;
+        ctx.shadowBlur = 14;
+        ctx.lineWidth = ring.golden ? 4 : 3;
+        ctx.beginPath();
+        ctx.arc(ring.pos.x, ring.pos.y, RING_R, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      // Plasma bolts (Flares mode).
+      for (const b of bolts) {
+        ctx.save();
+        ctx.globalCompositeOperation = "lighter";
+        ctx.fillStyle = "rgba(255, 170, 70, 0.85)";
+        ctx.shadowColor = "rgba(255, 110, 30, 0.9)";
+        ctx.shadowBlur = 14;
+        ctx.beginPath();
+        ctx.arc(b.pos.x, b.pos.y, BOLT_R, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
 
       // The star: layered radial glow with a slow pulse.
       const pulse = 1 + Math.sin(starPulse * 2.2) * 0.06;
@@ -522,13 +789,38 @@ export const createGame = (width: number, height: number): Game => {
     },
 
     getHud(): { left: string; center: string; right: string } {
+      const grav = `Gravity ${gravityScale.toFixed(1)}×`;
+      if (mode === "flares") {
+        return {
+          left: `Wave ${waveIndex + 1}`,
+          center:
+            phase === "playing"
+              ? `FLARES · Survived ${formatTime(survivalTime)} · ${grav}`
+              : phase === "matchEnd"
+                ? lastCause
+                : "",
+          right: `Best ${formatTime(bestFlares)}`
+        };
+      }
+      if (mode === "rings") {
+        return {
+          left: `Score ${score}`,
+          center:
+            phase === "playing"
+              ? `RINGS · ${formatTime(runTime)} left · ${grav}`
+              : phase === "matchEnd"
+                ? lastCause
+                : "",
+          right: `Best ${bestRings}`
+        };
+      }
       const speed1 = Math.round(len(comet1.vel));
       const speed2 = Math.round(len(comet2.vel));
       return {
         left: `P1 ${winsP1}  ·  ${speed1}`,
         center:
           phase === "playing"
-            ? `Round ${roundCount}  ·  Gravity ${gravityScale.toFixed(1)}×`
+            ? `DUEL · Round ${roundCount} · ${grav}`
             : phase === "roundEnd" && lastRoundWinner !== null
               ? `P${lastRoundWinner} wins — ${lastCause}`
               : "",
@@ -538,23 +830,44 @@ export const createGame = (width: number, height: number): Game => {
 
     getOverlay(helpHeld: boolean): { title: string; body: string; visible: boolean } {
       if (phase === "title") {
+        const menu =
+          "Choose a mode:\n" +
+          "  1  DUEL    — versus · best of 5 · slingshot & ram\n" +
+          "  2  FLARES  — co-op survival · dodge the star's bolts\n" +
+          "  3  RINGS   — co-op · fly through rings before time's up\n\n" +
+          `▶ selected: ${MODE_LABEL[mode]}\n\n` +
+          CONTROLS;
         return {
           title: "NOVA",
-          body: HELP_BODY + "\n\nEnter to start  ·  R to restart  ·  Hold H for help",
+          body: menu + "\n\nEnter to start  ·  R to restart  ·  Hold H for help",
           visible: true
         };
       }
-      if (phase === "matchEnd" && matchWinner !== null) {
+      if (phase === "matchEnd") {
+        if (mode === "duel" && matchWinner !== null) {
+          return {
+            title: `PLAYER ${matchWinner} WINS`,
+            body: `Match score ${winsP1} — ${winsP2}\n${lastCause}\nPress R to restart.`,
+            visible: true
+          };
+        }
+        if (mode === "flares") {
+          return {
+            title: `SURVIVED ${formatTime(survivalTime)}`,
+            body: `${lastCause}\nBest ${formatTime(bestFlares)}\nPress R to fly again.`,
+            visible: true
+          };
+        }
         return {
-          title: `PLAYER ${matchWinner} WINS`,
-          body: `Match score ${winsP1} — ${winsP2}\n${lastCause}\nPress R to restart.`,
+          title: `TIME!  ${score} RINGS`,
+          body: `Best ${bestRings}\nPress R to run it back.`,
           visible: true
         };
       }
       if (helpHeld) {
         return {
-          title: "HOW TO PLAY",
-          body: HELP_BODY + "\n\nRelease H to resume",
+          title: `HOW TO PLAY · ${MODE_LABEL[mode]}`,
+          body: CONTROLS + "\n\nRelease H to resume",
           visible: true
         };
       }
