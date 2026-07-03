@@ -11,7 +11,6 @@ export type PlayerInput = {
   x: number;
   y: number;
   primary: boolean;
-  secondary: boolean;
 };
 
 export type GlobalInput = {
@@ -67,8 +66,7 @@ export class InputManager {
     return {
       x: Number(isDown(this.held, "KeyD")) - Number(isDown(this.held, "KeyA")),
       y: Number(isDown(this.held, "KeyS")) - Number(isDown(this.held, "KeyW")),
-      primary: isDown(this.held, "ShiftLeft"),
-      secondary: isDown(this.held, "Space")
+      primary: isDown(this.held, "ShiftLeft")
     };
   }
 
@@ -77,8 +75,7 @@ export class InputManager {
       x:
         Number(isDown(this.held, "ArrowRight")) - Number(isDown(this.held, "ArrowLeft")),
       y: Number(isDown(this.held, "ArrowDown")) - Number(isDown(this.held, "ArrowUp")),
-      primary: isDown(this.held, "ShiftRight") || isDown(this.held, "Slash"),
-      secondary: isDown(this.held, "Enter") || isDown(this.held, "NumpadEnter")
+      primary: isDown(this.held, "ShiftRight") || isDown(this.held, "Slash")
     };
   }
 

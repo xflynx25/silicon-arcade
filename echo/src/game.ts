@@ -551,18 +551,15 @@ export const createGame = (width: number, height: number): Game => {
         ctx.fill();
       }
 
-      // Ping rings.
+      // Ping rings — no shadowBlur; expanding blurred strokes tank the frame.
       for (const ping of pings) {
         const t = clamp(ping.life / PING_DURATION, 0, 1);
-        ctx.strokeStyle = `hsla(${ping.hue}, 100%, 70%, ${t * 0.7})`;
-        ctx.shadowColor = `hsla(${ping.hue}, 100%, 60%, ${t})`;
-        ctx.shadowBlur = 16;
-        ctx.lineWidth = 2 + t * 2;
+        ctx.strokeStyle = `hsla(${ping.hue}, 100%, 70%, ${t * 0.55})`;
+        ctx.lineWidth = 1.5 + t;
         ctx.beginPath();
         ctx.arc(ping.origin.x, ping.origin.y, ping.radius, 0, Math.PI * 2);
         ctx.stroke();
       }
-      ctx.shadowBlur = 0;
 
       // Enemies — only visible where lit or inside a player's light bubble.
       for (const enemy of enemies) {
@@ -576,9 +573,11 @@ export const createGame = (width: number, height: number): Game => {
         if (vis < 0.03) {
           continue;
         }
+        ctx.fillStyle = `hsla(${enemy.hue}, 90%, 60%, ${vis * 0.35})`;
+        ctx.beginPath();
+        ctx.arc(enemy.pos.x, enemy.pos.y, enemy.radius * 1.6, 0, Math.PI * 2);
+        ctx.fill();
         ctx.fillStyle = `hsla(${enemy.hue}, 90%, 60%, ${vis})`;
-        ctx.shadowColor = `hsla(${enemy.hue}, 100%, 55%, ${vis})`;
-        ctx.shadowBlur = 14 * vis;
         ctx.beginPath();
         ctx.arc(enemy.pos.x, enemy.pos.y, enemy.radius, 0, Math.PI * 2);
         ctx.fill();
@@ -590,31 +589,31 @@ export const createGame = (width: number, height: number): Game => {
           ctx.stroke();
         }
       }
-      ctx.shadowBlur = 0;
-
       // Strike bursts.
       for (const strike of strikes) {
         const t = clamp(strike.life / 0.28, 0, 1);
-        ctx.strokeStyle = `hsla(${strike.hue}, 100%, 75%, ${t})`;
-        ctx.lineWidth = 3 * t + 1;
+        ctx.strokeStyle = `hsla(${strike.hue}, 100%, 75%, ${t * 0.6})`;
+        ctx.lineWidth = 2;
         ctx.beginPath();
-        ctx.arc(strike.pos.x, strike.pos.y, strike.radius * (1.2 - t * 0.2), 0, Math.PI * 2);
+        ctx.arc(strike.pos.x, strike.pos.y, strike.radius, 0, Math.PI * 2);
         ctx.stroke();
       }
 
-      // Core.
+      // Core — cheap dual-disc glow instead of shadowBlur.
       const threatWarning = nearestCoreThreat < 160 && phase === "playing";
       const corePulseScale = 1 + Math.sin(corePulse) * 0.06;
       const healthT = coreHealth / CORE_MAX_HEALTH;
       const coreHue = 200 - (1 - healthT) * 200; // blue -> red as it fails
       const coreColor = coreFlash > 0.01 ? `hsla(0, 100%, 65%, 1)` : `hsla(${coreHue}, 90%, 62%, 1)`;
-      ctx.fillStyle = coreColor;
-      ctx.shadowColor = coreColor;
-      ctx.shadowBlur = 30 + coreFlash * 30 + (threatWarning ? 14 : 0);
+      const coreRadius = CORE_RADIUS * corePulseScale;
+      ctx.fillStyle = `hsla(${coreHue}, 90%, 62%, ${0.18 + coreFlash * 0.2})`;
       ctx.beginPath();
-      ctx.arc(c.x, c.y, CORE_RADIUS * corePulseScale, 0, Math.PI * 2);
+      ctx.arc(c.x, c.y, coreRadius * 1.7, 0, Math.PI * 2);
       ctx.fill();
-      ctx.shadowBlur = 0;
+      ctx.fillStyle = coreColor;
+      ctx.beginPath();
+      ctx.arc(c.x, c.y, coreRadius, 0, Math.PI * 2);
+      ctx.fill();
       if (threatWarning) {
         ctx.strokeStyle = `hsla(0, 100%, 60%, ${0.3 + Math.sin(corePulse * 3) * 0.2})`;
         ctx.lineWidth = 2;
@@ -625,13 +624,14 @@ export const createGame = (width: number, height: number): Game => {
 
       // Players.
       for (const player of players) {
+        ctx.fillStyle = `hsla(${player.hue}, 100%, 60%, 0.22)`;
+        ctx.beginPath();
+        ctx.arc(player.pos.x, player.pos.y, PLAYER_RADIUS * 1.6, 0, Math.PI * 2);
+        ctx.fill();
         ctx.fillStyle = `hsl(${player.hue}, 100%, 65%)`;
-        ctx.shadowColor = `hsl(${player.hue}, 100%, 55%)`;
-        ctx.shadowBlur = 18;
         ctx.beginPath();
         ctx.arc(player.pos.x, player.pos.y, PLAYER_RADIUS, 0, Math.PI * 2);
         ctx.fill();
-        ctx.shadowBlur = 0;
         // ping-ready ring
         const pingReady = player.pingCooldown <= 0;
         const frac = pingReady ? 1 : 1 - player.pingCooldown / PING_COOLDOWN;

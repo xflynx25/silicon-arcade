@@ -57,6 +57,7 @@ const BURST_COOLDOWN = 4;
 const BURST_RADIUS = 260;
 const BURST_BALL_IMPULSE = 640;
 const BURST_PLAYER_IMPULSE = 480;
+const MAX_SHOCKWAVES = 2;
 
 export class PolarityGame {
   private mode: GameMode = "intro";
@@ -289,7 +290,7 @@ export class PolarityGame {
     player.vel.y += direction.y * 380;
     player.dashCooldown = DASH_COOLDOWN;
     player.grabTimer = DASH_GRAB_TIME;
-    this.particles.emit(player.pos, 10, player.hue, 180);
+    this.particles.emit(player.pos, 6, player.hue, 180);
     this.audio.dash();
   }
 
@@ -318,7 +319,10 @@ export class PolarityGame {
       life: 1,
       hue: player.hue
     });
-    this.particles.emit(player.pos, 20, player.hue, 240);
+    while (this.shockwaves.length > MAX_SHOCKWAVES) {
+      this.shockwaves.shift();
+    }
+    this.particles.emit(player.pos, 12, player.hue, 240);
     this.shake = Math.max(this.shake, 8);
     this.audio.burst();
   }
@@ -428,7 +432,7 @@ export class PolarityGame {
   private onScore(scoredBy: 0 | 1): void {
     const hue = scoredBy === 0 ? 210 : 16;
     this.audio.score();
-    this.particles.emit(this.ball.pos, 36, hue, 220);
+    this.particles.emit(this.ball.pos, 20, hue, 220);
     this.shake = 12;
     this.ball.pos = vec(this.world.width * 0.5, this.world.height * 0.5);
     this.ball.vel = vec((Math.random() - 0.5) * 180, (Math.random() - 0.5) * 180);
@@ -453,16 +457,13 @@ export class PolarityGame {
   }
 
   private drawShockwaves(): void {
-    this.ctx.save();
-    this.ctx.globalCompositeOperation = "lighter";
     for (const wave of this.shockwaves) {
-      this.ctx.strokeStyle = `hsla(${wave.hue}, 100%, 70%, ${wave.life * 0.8})`;
-      this.ctx.lineWidth = 2 + wave.life * 6;
+      this.ctx.strokeStyle = `hsla(${wave.hue}, 100%, 70%, ${wave.life * 0.45})`;
+      this.ctx.lineWidth = 1.5;
       this.ctx.beginPath();
       this.ctx.arc(wave.pos.x, wave.pos.y, wave.radius, 0, Math.PI * 2);
       this.ctx.stroke();
     }
-    this.ctx.restore();
   }
 
   private drawBackground(): void {
@@ -509,50 +510,46 @@ export class PolarityGame {
     if (this.trail.length < 2) {
       return;
     }
-    this.ctx.save();
-    this.ctx.globalCompositeOperation = "lighter";
     for (let i = 1; i < this.trail.length; i += 1) {
       const a = this.trail[i - 1];
       const b = this.trail[i];
       const t = i / this.trail.length;
-      this.ctx.strokeStyle = `rgba(255,255,255,${t * 0.5})`;
-      this.ctx.lineWidth = 1 + t * 3;
+      this.ctx.strokeStyle = `rgba(255,255,255,${t * 0.35})`;
+      this.ctx.lineWidth = 1 + t * 2;
       this.ctx.beginPath();
       this.ctx.moveTo(a.x, a.y);
       this.ctx.lineTo(b.x, b.y);
       this.ctx.stroke();
     }
-    this.ctx.restore();
   }
 
   private drawPlayers(): void {
     for (const player of this.players) {
       const positive = player.polarity > 0;
       const color = positive ? "rgba(72, 176, 255, 0.95)" : "rgba(255, 120, 86, 0.95)";
-      this.ctx.save();
-      this.ctx.globalCompositeOperation = "lighter";
+      const glowHue = positive ? 210 : 16;
 
-      // Grab window flare — the dash scoop is active.
+      // Grab window — static ring that fades out (no expanding glow sweep).
       if (player.grabTimer > 0) {
         const t = player.grabTimer / DASH_GRAB_TIME;
-        this.ctx.strokeStyle = `hsla(${player.hue}, 100%, 75%, ${t})`;
-        this.ctx.lineWidth = 3;
+        this.ctx.strokeStyle = `hsla(${player.hue}, 100%, 75%, ${t * 0.55})`;
+        this.ctx.lineWidth = 2;
         this.ctx.beginPath();
-        this.ctx.arc(player.pos.x, player.pos.y, 20 + (1 - t) * 16, 0, Math.PI * 2);
+        this.ctx.arc(player.pos.x, player.pos.y, 26, 0, Math.PI * 2);
         this.ctx.stroke();
       }
 
+      this.ctx.fillStyle = `hsla(${glowHue}, 100%, 60%, 0.22)`;
+      this.ctx.beginPath();
+      this.ctx.arc(player.pos.x, player.pos.y, 22, 0, Math.PI * 2);
+      this.ctx.fill();
       this.ctx.fillStyle = color;
-      this.ctx.shadowColor = color;
-      this.ctx.shadowBlur = 20;
       this.ctx.beginPath();
       this.ctx.arc(player.pos.x, player.pos.y, 14, 0, Math.PI * 2);
       this.ctx.fill();
 
-      // Burst charge ring: fills clockwise as the ability recharges.
       const ready = player.burstCooldown <= 0;
       const frac = ready ? 1 : 1 - player.burstCooldown / BURST_COOLDOWN;
-      this.ctx.shadowBlur = 0;
       this.ctx.strokeStyle = ready
         ? `hsla(${player.hue}, 100%, 80%, 0.95)`
         : `hsla(${player.hue}, 80%, 60%, 0.4)`;
@@ -566,21 +563,20 @@ export class PolarityGame {
         -Math.PI / 2 + Math.PI * 2 * frac
       );
       this.ctx.stroke();
-      this.ctx.restore();
     }
   }
 
   private drawBall(): void {
     const positive = this.ball.polarity > 0;
     const color = positive ? "rgba(180, 232, 255, 1)" : "rgba(255, 196, 174, 1)";
-    this.ctx.save();
-    this.ctx.globalCompositeOperation = "lighter";
+    const glowHue = positive ? 195 : 16;
+    this.ctx.fillStyle = `hsla(${glowHue}, 100%, 75%, 0.25)`;
+    this.ctx.beginPath();
+    this.ctx.arc(this.ball.pos.x, this.ball.pos.y, 20, 0, Math.PI * 2);
+    this.ctx.fill();
     this.ctx.fillStyle = color;
-    this.ctx.shadowColor = color;
-    this.ctx.shadowBlur = 28;
     this.ctx.beginPath();
     this.ctx.arc(this.ball.pos.x, this.ball.pos.y, 12, 0, Math.PI * 2);
     this.ctx.fill();
-    this.ctx.restore();
   }
 }
