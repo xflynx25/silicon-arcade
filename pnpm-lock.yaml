@@ -17,6 +17,15 @@ importers:
         specifier: ^5.3.5
         version: 5.4.21
 
+  nova:
+    devDependencies:
+      typescript:
+        specifier: ^5.5.4
+        version: 5.9.3
+      vite:
+        specifier: ^5.3.5
+        version: 5.4.21
+
   polarity:
     devDependencies:
       typescript:

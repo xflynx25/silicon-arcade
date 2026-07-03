@@ -1,6 +1,6 @@
 # GF Game — Local 2-Player Games
 
-Five local 2-player keyboard games in one workspace.
+Six local 2-player keyboard games in one workspace.
 
 ## Install
 
@@ -16,6 +16,7 @@ pnpm dev:polarity
 pnpm dev:ricochet
 pnpm dev:echo
 pnpm dev:vortex
+pnpm dev:nova
 ```
 
 ## Games
@@ -25,8 +26,9 @@ pnpm dev:vortex
 | **TETHER** | Co-opetition | Spirits linked by an elastic tether — swing, slingshot, collect orbs |
 | **POLARITY** | Competitive duel | Magnetic ships flip polarity to grab and shoot a shared charged ball |
 | **RICOCHET** | Competitive duel / co-op / pong | Tilt paddles to deflect a neon ball — smash lunge, curve spin, and three selectable modes |
-| **ECHO** | Rhythm co-op | Slide to your resonance arc, hit the pulse ring on beat — duo lock fills bloom |
+| **ECHO** | Co-op survival | Defend the Core in the dark — ping to reveal husks, strike to destroy them, resonate together |
 | **VORTEX** | Sumo knockout | Charge-dash ships in a shrinking arena — knock your opponent out |
+| **NOVA** | Orbital duel | Comets orbit a star's gravity — slingshot for speed, ram to shatter your rival |
 
 ## Controls
 
@@ -55,13 +57,24 @@ Shared across all games:
 
 ### ECHO specifics
 
-- Each pulse ring spawns a **cyan arc (P1)** and **magenta arc (P2)** on the orbit
-- `A/D` · `←/→` slide to your arc before the ring arrives
-- `Shift` / `RShift` hit on the beat when ring and arc align; both players must lock for bloom
-- `Space` / `Enter` focus slow-mo
-- On title screen: `[` / `]` adjust tempo (50–100 BPM, default 65)
+- Co-op survival in the dark — defend the shared **Core** at the center through 6 waves
+- **Husks** crawl in from the black and are nearly invisible until revealed
+- `Shift` / `RShift` **ping** — a sonar ring that lights up every husk it sweeps (they fade back to dark)
+- `Space` / `Enter` **strike** — destroys husks close to you; position using what your pings reveal
+- When both players' pings **overlap**, they **resonate** — the arena flashes bright and everything nearby is blasted apart
+- Let a husk reach the Core and it takes a bite; drop the Core to zero and the dark wins
 
 ### VORTEX specifics
 
 - Hold `Shift` / `RShift` to charge dash, release to lunge
 - `Space` / `Enter` parry shield
+
+### NOVA specifics
+
+- The central star's gravity constantly pulls both comets inward — thrust to steer your orbit
+- **Dive close** to the star for a gravity-assist speed boost, then use it to ram
+- Ramming: the **faster comet shatters the slower one**; near-matched speeds just bounce
+- Hold `Shift` / `RShift` to charge a **Flare** burst, release to lunge along your aim
+- `Space` / `Enter` **Shield** — a timed parry that reflects a ram and wins the exchange (cooldown)
+- Two death lines: burn up in the star's **corona** or drift out past the **void** edge
+- Any time: `[` / `]` adjust **Gravity** (0.4×–2.5×); best of 5 rounds

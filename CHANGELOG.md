@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-07-03 (continued)
+
+- **ECHO**: full redesign from a one-axis rhythm game into **Blackout**, a co-op survival game driven by echolocation. Two players defend a shared **Core** at the center of a dark arena through 6 escalating waves of husks (drifters, fast darters, tanky husks) that crawl in from the black and are invisible until revealed. **Ping** (primary) fires a sonar ring that lights up and knocks back every husk it sweeps; **Strike** (secondary) destroys husks in melee range — you position by memory of what your pings revealed. When both players' pings overlap they **resonate**, flashing the whole arena and blasting everything nearby (carrying over Echo's old "both players lock together" identity). Husks that reach the Core bite its health; drop it to zero and the dark wins. Removed the entire BPM/beat/tempo system (audio beat scheduler, `onBeat`, tempo controls) and rewrote the game, input, audio, and main wiring around the new loop.
+- **NOVA**: added a sixth game — an orbital slingshot duel. A central star exerts real gravity on two comets; players thrust to shape their orbit, dive close for a gravity-assist speed boost, and ram their rival — the faster comet shatters the slower one, near-matched speeds just bounce. Reuses the vortex feel: hold `Shift`/`RShift` to charge a **Flare** lunge, `Space`/`Enter` for a timed **Shield** parry that reflects a ram. Two death lines — burn up in the star's corona or drift past the void edge — plus a live `[`/`]` **Gravity** knob (0.4×–2.5×). Best of 5. Wired `dev:nova` and the workspace, updated README.
+
 ## 2026-07-03
 
 - **POLARITY**: rewrote the how-to-play card to actually explain the magnetism (opposite charges attract, like charges repel; flip to pull the core in and shove it at the rival's gate).

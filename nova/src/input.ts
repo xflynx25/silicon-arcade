@@ -24,6 +24,7 @@ const isDown = (set: Set<string>, code: string): boolean => set.has(code);
 export class InputManager {
   private readonly held = new Set<string>();
   private readonly pressed = new Set<string>();
+  private readonly released = new Set<string>();
 
   private readonly downHandler = (event: KeyboardEvent): void => {
     if (BLOCKED_KEYS.has(event.key)) {
@@ -36,6 +37,9 @@ export class InputManager {
   };
 
   private readonly upHandler = (event: KeyboardEvent): void => {
+    if (this.held.has(event.code)) {
+      this.released.add(event.code);
+    }
     this.held.delete(event.code);
   };
 
@@ -49,6 +53,7 @@ export class InputManager {
     window.removeEventListener("keyup", this.upHandler);
     this.held.clear();
     this.pressed.clear();
+    this.released.clear();
   }
 
   consumeGlobal(): GlobalInput {
@@ -62,8 +67,8 @@ export class InputManager {
     return {
       x: Number(isDown(this.held, "KeyD")) - Number(isDown(this.held, "KeyA")),
       y: Number(isDown(this.held, "KeyS")) - Number(isDown(this.held, "KeyW")),
-      primary: this.consumePress("ShiftLeft"),
-      secondary: this.consumePress("Space")
+      primary: isDown(this.held, "ShiftLeft"),
+      secondary: isDown(this.held, "Space")
     };
   }
 
@@ -72,8 +77,8 @@ export class InputManager {
       x:
         Number(isDown(this.held, "ArrowRight")) - Number(isDown(this.held, "ArrowLeft")),
       y: Number(isDown(this.held, "ArrowDown")) - Number(isDown(this.held, "ArrowUp")),
-      primary: this.consumePress("ShiftRight") || this.consumePress("Slash"),
-      secondary: this.consumePress("Enter") || this.consumePress("NumpadEnter")
+      primary: isDown(this.held, "ShiftRight") || isDown(this.held, "Slash"),
+      secondary: isDown(this.held, "Enter") || isDown(this.held, "NumpadEnter")
     };
   }
 
@@ -85,11 +90,27 @@ export class InputManager {
     return true;
   }
 
+  consumeRelease(code: string): boolean {
+    if (!this.released.has(code)) {
+      return false;
+    }
+    this.released.delete(code);
+    return true;
+  }
+
+  primaryReleased(player: 1 | 2): boolean {
+    if (player === 1) {
+      return this.consumeRelease("ShiftLeft");
+    }
+    return this.consumeRelease("ShiftRight") || this.consumeRelease("Slash");
+  }
+
   isHeld(code: string): boolean {
     return this.held.has(code);
   }
 
   endFrame(): void {
     this.pressed.clear();
+    this.released.clear();
   }
 }

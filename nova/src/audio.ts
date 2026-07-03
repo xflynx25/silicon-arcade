@@ -9,6 +9,7 @@ type SfxConfig = {
 export class AudioSystem {
   private context: AudioContext | null = null;
   private initialized = false;
+  private lastRam = 0;
 
   initOnGesture(): void {
     if (this.initialized) {
@@ -19,7 +20,7 @@ export class AudioSystem {
     }
     this.context = new AudioContext();
     this.initialized = true;
-    this.ambient();
+    this.playAmbientHum();
   }
 
   private play(config: SfxConfig): void {
@@ -44,49 +45,46 @@ export class AudioSystem {
     osc.stop(now + config.duration);
   }
 
-  private ambient(): void {
+  // Low deep-space drone with a slow beat — the star's gravity well.
+  private playAmbientHum(): void {
     if (!this.context) {
       return;
     }
     const pulse = (): void => {
-      this.play({ freq: 58, duration: 2.4, type: "sine", gain: 0.02, slideTo: 44 });
-      window.setTimeout(pulse, 3200);
+      this.play({ freq: 48, duration: 2.4, type: "sine", gain: 0.01, slideTo: 40 });
+      window.setTimeout(pulse, 3600);
     };
     pulse();
   }
 
-  ping(): void {
-    this.play({ freq: 880, duration: 0.22, type: "sine", gain: 0.03, slideTo: 1650 });
+  // Flare burst — a rising whoosh as the comet lunges.
+  flare(): void {
+    this.play({ freq: 90, duration: 0.22, type: "sawtooth", gain: 0.04, slideTo: 240 });
   }
 
-  strike(): void {
-    this.play({ freq: 220, duration: 0.12, type: "square", gain: 0.035, slideTo: 70 });
+  shield(): void {
+    this.play({ freq: 620, duration: 0.14, type: "square", gain: 0.035, slideTo: 900 });
   }
 
-  hit(): void {
-    this.play({ freq: 300, duration: 0.12, type: "triangle", gain: 0.03, slideTo: 520 });
+  // Glancing contact — bounce without a kill.
+  ram(): void {
+    if (!this.context) {
+      return;
+    }
+    if (this.context.currentTime - this.lastRam < 0.06) {
+      return;
+    }
+    this.lastRam = this.context.currentTime;
+    this.play({ freq: 180, duration: 0.1, type: "triangle", gain: 0.04, slideTo: 300 });
   }
 
-  coreHit(): void {
-    this.play({ freq: 150, duration: 0.34, type: "sawtooth", gain: 0.055, slideTo: 55 });
+  // A comet shatters — the kill impact.
+  shatter(): void {
+    this.play({ freq: 340, duration: 0.55, type: "square", gain: 0.05, slideTo: 44 });
   }
 
-  resonance(): void {
-    this.play({ freq: 440, duration: 0.4, type: "sine", gain: 0.05, slideTo: 1320 });
-    window.setTimeout(() => {
-      this.play({ freq: 660, duration: 0.3, type: "triangle", gain: 0.035, slideTo: 990 });
-    }, 40);
-  }
-
-  waveClear(): void {
-    this.play({ freq: 330, duration: 0.4, type: "triangle", gain: 0.04, slideTo: 660 });
-  }
-
-  victory(): void {
-    this.play({ freq: 262, duration: 0.7, type: "triangle", gain: 0.05, slideTo: 1047 });
-  }
-
-  gameOver(): void {
-    this.play({ freq: 220, duration: 0.8, type: "sawtooth", gain: 0.05, slideTo: 40 });
+  // Burned up in the corona.
+  burn(): void {
+    this.play({ freq: 520, duration: 0.6, type: "sawtooth", gain: 0.045, slideTo: 70 });
   }
 }

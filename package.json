@@ -8,6 +8,7 @@
     "dev:ricochet": "pnpm --filter ricochet dev",
     "dev:echo": "pnpm --filter echo dev",
     "dev:vortex": "pnpm --filter vortex dev",
+    "dev:nova": "pnpm --filter nova dev",
     "build": "pnpm -r build"
   }
 }

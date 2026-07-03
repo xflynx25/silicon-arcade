@@ -2,14 +2,23 @@ import type { PlayerInput } from "./input";
 import { ParticleSystem } from "./particles";
 import { AudioSystem } from "./audio";
 import {
-  GOAL_PRESET_LABEL,
-  GOAL_PRESET_ORDER,
+  controlsHelp,
+  DEFAULT_GOAL_SETTINGS,
+  DISAPPEAR_LABELS,
+  DISAPPEAR_STEPS,
+  DISAPPEAR_VISIBLE_FRAC,
+  GOAL_DRIFT_LABELS,
+  GOAL_DRIFT_STEPS,
+  GOAL_SIZE_LABELS,
+  GOAL_SIZE_STEPS,
   MODE_DESCRIPTION,
   MODE_HELP,
   MODE_LABEL,
+  MOVE_RANGE_LABELS,
+  MOVE_RANGE_STEPS,
   WIN_SCORE_OPTIONS,
-  type GoalPreset,
-  type ModeId
+  type ModeId,
+  type SettingKind
 } from "./modes";
 import { clamp, dist, len, normalize, sub, vec, type Vec } from "./vec";
 
@@ -20,14 +29,14 @@ const PADDLE_THICK = 10;
 const BALL_R = 8;
 const WALL_PAD = 48;
 const GOAL_DEPTH = 44;
-const GOAL_H = 100;
-const GOAL_H_SMALL = 60;
 const PADDLE_MAX_ANGLE = 1.5;
 const PADDLE_TILT_SPEED = 4.5;
+const PADDLE_SLIDE_SPEED = 380;
 const MIN_HORIZONTAL_FRAC = 0.34;
 
 type Paddle = {
   y: number;
+  slideX: number;
   angle: number;
   smash: number;
   spinReady: boolean;
@@ -49,12 +58,9 @@ type Goal = {
   y: number;
   h: number;
   vy: number;
-  blinkPeriod: number;
-  blinkOn: number;
+  disappearPeriod: number; // full vanish/reappear cycle, seconds; 0 = always on
   t: number;
   visible: boolean;
-  points: number;
-  respawnOnScore: boolean;
 };
 
 export type Game = {
@@ -62,7 +68,8 @@ export type Game = {
   resize: (w: number, h: number) => void;
   selectMode: (mode: ModeId) => void;
   cycleWinScore: (delta: number) => void;
-  cycleGoalPreset: () => void;
+  adjustSetting: (kind: SettingKind, delta: number) => void;
+  toggleFreeMove: () => void;
   startRound: () => void;
   restartRound: () => void;
   update: (dt: number, p1: PlayerInput, p2: PlayerInput, audio: AudioSystem) => void;
@@ -94,7 +101,7 @@ const paddleEndpoints = (
   smashOffset: number
 ): { a: Vec; b: Vec } => {
   const outward = paddle.side === "left" ? 1 : -1;
-  const cx = wallX + outward * smashOffset;
+  const cx = wallX + outward * (smashOffset + paddle.slideX);
   const half = PADDLE_LEN * 0.5;
   const dx = Math.cos(paddle.angle) * half * outward;
   const dy = Math.sin(paddle.angle) * half;
@@ -179,7 +186,7 @@ export const createGame = (width: number, height: number): Game => {
   let phase: GamePhase = "title";
   let currentMode: ModeId = "duel";
   let winScore = 5;
-  let goalPreset: GoalPreset = "static";
+  const settings = { ...DEFAULT_GOAL_SETTINGS };
   let scoreP1 = 0;
   let scoreP2 = 0;
   let bestRally = 0;
@@ -190,8 +197,24 @@ export const createGame = (width: number, height: number): Game => {
   const particles = new ParticleSystem();
   const trails: TrailPoint[] = [];
 
-  const p1: Paddle = { y: h * 0.5, angle: 0, smash: 0, spinReady: false, hue: 190, side: "left" };
-  const p2: Paddle = { y: h * 0.5, angle: 0, smash: 0, spinReady: false, hue: 320, side: "right" };
+  const p1: Paddle = {
+    y: h * 0.5,
+    slideX: 0,
+    angle: 0,
+    smash: 0,
+    spinReady: false,
+    hue: 190,
+    side: "left"
+  };
+  const p2: Paddle = {
+    y: h * 0.5,
+    slideX: 0,
+    angle: 0,
+    smash: 0,
+    spinReady: false,
+    hue: 320,
+    side: "right"
+  };
 
   const ball: Ball = {
     pos: vec(w * 0.5, h * 0.5),
@@ -212,6 +235,8 @@ export const createGame = (width: number, height: number): Game => {
   const resetPaddles = (): void => {
     p1.y = h * 0.5;
     p2.y = h * 0.5;
+    p1.slideX = 0;
+    p2.slideX = 0;
     p1.angle = 0;
     p2.angle = 0;
     p1.smash = 0;
@@ -220,53 +245,39 @@ export const createGame = (width: number, height: number): Game => {
     p2.spinReady = false;
   };
 
-  const baseGoal = (side: "left" | "right", y: number, overrides: Partial<Goal> = {}): Goal => ({
-    side,
-    y,
-    h: GOAL_H,
-    vy: 0,
-    blinkPeriod: 0,
-    blinkOn: 1,
-    t: 0,
-    visible: true,
-    points: 1,
-    respawnOnScore: false,
-    ...overrides
-  });
+  // how far a paddle may slide inward from its wall (0 when free move is off)
+  const maxSlide = (): number =>
+    settings.freeMove
+      ? MOVE_RANGE_STEPS[settings.moveRangeIdx] * (w * 0.5 - WALL_PAD - 10)
+      : 0;
 
-  const makeGoals = (preset: GoalPreset): Goal[] => {
+  const randomGoalY = (goalH: number): number => {
+    const minY = WALL_PAD + goalH * 0.5;
+    const maxY = h - WALL_PAD - goalH * 0.5;
+    return minY + Math.random() * (maxY - minY);
+  };
+
+  const makeGoals = (): Goal[] => {
+    const goalH = GOAL_SIZE_STEPS[settings.sizeIdx] * (h - 2 * WALL_PAD);
+    const drift = GOAL_DRIFT_STEPS[settings.driftIdx];
+    const period = DISAPPEAR_STEPS[settings.disappearIdx];
     const mid = h * 0.5;
-    switch (preset) {
-      case "moving":
-        return [
-          baseGoal("left", mid, { vy: 65 }),
-          baseGoal("right", mid, { vy: -65 })
-        ];
-      case "moveOnHit":
-        return [
-          baseGoal("left", mid, { respawnOnScore: true }),
-          baseGoal("right", mid, { respawnOnScore: true })
-        ];
-      case "double":
-        return [
-          baseGoal("left", h * 0.3, { h: GOAL_H_SMALL, points: 2 }),
-          baseGoal("left", h * 0.7, { points: 1 }),
-          baseGoal("right", h * 0.3, { h: GOAL_H_SMALL, points: 2 }),
-          baseGoal("right", h * 0.7, { points: 1 })
-        ];
-      case "disappearing":
-        return [
-          baseGoal("left", mid, { blinkPeriod: 2.4, blinkOn: 0.6 }),
-          baseGoal("right", mid, { blinkPeriod: 2.4, blinkOn: 0.6, t: 1.2 })
-        ];
-      case "static":
-      default:
-        return [baseGoal("left", mid), baseGoal("right", mid)];
-    }
+    const make = (side: "left" | "right", vy: number, t: number): Goal => ({
+      side,
+      y: mid,
+      h: goalH,
+      vy,
+      disappearPeriod: period,
+      t,
+      visible: true
+    });
+    // opposite drift directions and offset disappear phases so the two goals
+    // never line up in lockstep
+    return [make("left", drift, 0), make("right", -drift, period * 0.5)];
   };
 
   const setupMode = (): void => {
-    goals = currentMode === "goals" ? makeGoals(goalPreset) : [];
+    goals = currentMode === "goals" ? makeGoals() : [];
     if (currentMode === "rally") {
       bestRally = 0;
     }
@@ -286,24 +297,18 @@ export const createGame = (width: number, height: number): Game => {
           g.vy = -Math.abs(g.vy);
         }
       }
-      if (g.blinkPeriod > 0) {
+      if (g.disappearPeriod > 0) {
         g.t += dt;
-        if (g.t > g.blinkPeriod) {
-          g.t -= g.blinkPeriod;
+        if (g.t >= g.disappearPeriod) {
+          g.t -= g.disappearPeriod;
+          // reappear somewhere new — the whole point of "disappearing"
+          g.y = randomGoalY(g.h);
         }
-        g.visible = g.t < g.blinkPeriod * g.blinkOn;
+        g.visible = g.t < g.disappearPeriod * DISAPPEAR_VISIBLE_FRAC;
       } else {
         g.visible = true;
       }
     }
-  };
-
-  const respawnGoal = (g: Goal): void => {
-    const minY = WALL_PAD + g.h * 0.5;
-    const maxY = h - WALL_PAD - g.h * 0.5;
-    g.y = minY + Math.random() * (maxY - minY);
-    g.t = 0;
-    g.visible = true;
   };
 
   const updatePaddle = (
@@ -316,6 +321,14 @@ export const createGame = (width: number, height: number): Game => {
     const minY = WALL_PAD + PADDLE_LEN * 0.5;
     const maxY = h - WALL_PAD - PADDLE_LEN * 0.5;
     paddle.y = clamp(paddle.y + slideAxis * 420 * dt, minY, maxY);
+
+    // horizontal move (free-move only): convert screen-x input into inward
+    // motion, so pressing toward the centre advances the paddle for both sides
+    const outward = paddle.side === "left" ? 1 : -1;
+    const inward = input.x * outward;
+    const moveX = settings.freeMove ? inward : 0;
+    paddle.slideX = clamp(paddle.slideX + moveX * PADDLE_SLIDE_SPEED * dt, 0, maxSlide());
+
     paddle.angle = clamp(
       paddle.angle + tiltAxis * PADDLE_TILT_SPEED * dt,
       -PADDLE_MAX_ANGLE,
@@ -333,11 +346,11 @@ export const createGame = (width: number, height: number): Game => {
     }
   };
 
-  const scoreGoal = (scorer: 1 | 2, audio: AudioSystem, points = 1): void => {
+  const scoreGoal = (scorer: 1 | 2, audio: AudioSystem): void => {
     if (scorer === 1) {
-      scoreP1 += points;
+      scoreP1 += 1;
     } else {
-      scoreP2 += points;
+      scoreP2 += 1;
     }
     audio.score();
     shake = 12;
@@ -347,7 +360,7 @@ export const createGame = (width: number, height: number): Game => {
     roundTimer = 1.2;
   };
 
-  const onBallExit = (side: "left" | "right", audio: AudioSystem, points = 1): void => {
+  const onBallExit = (side: "left" | "right", audio: AudioSystem): void => {
     if (currentMode === "rally") {
       bestRally = Math.max(bestRally, ball.rally);
       audio.score();
@@ -358,7 +371,7 @@ export const createGame = (width: number, height: number): Game => {
       return;
     }
     const scorer: 1 | 2 = side === "left" ? 2 : 1;
-    scoreGoal(scorer, audio, points);
+    scoreGoal(scorer, audio);
   };
 
   const tryScoreGoalZone = (side: "left" | "right", audio: AudioSystem): boolean => {
@@ -368,10 +381,7 @@ export const createGame = (width: number, height: number): Game => {
     if (!hit) {
       return false;
     }
-    if (hit.respawnOnScore) {
-      respawnGoal(hit);
-    }
-    onBallExit(side, audio, hit.points);
+    onBallExit(side, audio);
     return true;
   };
 
@@ -404,12 +414,27 @@ export const createGame = (width: number, height: number): Game => {
       winScore = options[nextIndex];
     },
 
-    cycleGoalPreset(): void {
+    adjustSetting(kind: SettingKind, delta: number): void {
+      if (phase !== "title" || delta === 0) {
+        return;
+      }
+      const clampIdx = (i: number, len: number): number => clamp(i + delta, 0, len - 1);
+      if (kind === "size") {
+        settings.sizeIdx = clampIdx(settings.sizeIdx, GOAL_SIZE_STEPS.length);
+      } else if (kind === "drift") {
+        settings.driftIdx = clampIdx(settings.driftIdx, GOAL_DRIFT_STEPS.length);
+      } else if (kind === "disappear") {
+        settings.disappearIdx = clampIdx(settings.disappearIdx, DISAPPEAR_STEPS.length);
+      } else if (kind === "range") {
+        settings.moveRangeIdx = clampIdx(settings.moveRangeIdx, MOVE_RANGE_STEPS.length);
+      }
+    },
+
+    toggleFreeMove(): void {
       if (phase !== "title") {
         return;
       }
-      const i = GOAL_PRESET_ORDER.indexOf(goalPreset);
-      goalPreset = GOAL_PRESET_ORDER[(i + 1) % GOAL_PRESET_ORDER.length];
+      settings.freeMove = !settings.freeMove;
     },
 
     startRound(): void {
@@ -452,8 +477,12 @@ export const createGame = (width: number, height: number): Game => {
         return;
       }
 
-      updatePaddle(p1, p1In, p1In.y, p1In.x, dt);
-      updatePaddle(p2, p2In, p2In.y, p2In.x, dt);
+      // free move: horizontal keys drive the slide, rotate moves to Q/E & , / .
+      // otherwise the horizontal keys tilt the paddle as before
+      const tiltP1 = settings.freeMove ? p1In.rot : p1In.x;
+      const tiltP2 = settings.freeMove ? p2In.rot : p2In.x;
+      updatePaddle(p1, p1In, p1In.y, tiltP1, dt);
+      updatePaddle(p2, p2In, p2In.y, tiltP2, dt);
 
       ball.spin *= 0.998;
       ball.vel.x += ball.spin * ball.vel.y * 0.0008;
@@ -691,7 +720,7 @@ export const createGame = (width: number, height: number): Game => {
     },
 
     getOverlay(helpHeld: boolean): { title: string; body: string; visible: boolean } {
-      const help = MODE_HELP[currentMode];
+      const help = `${MODE_HELP[currentMode]}\n\n${controlsHelp(settings.freeMove)}`;
       if (phase === "title") {
         const digits: Record<ModeId, string> = { duel: "1", rally: "2", goals: "3" };
         const modeLines = (["duel", "rally", "goals"] as ModeId[])
@@ -701,17 +730,23 @@ export const createGame = (width: number, height: number): Game => {
           })
           .join("\n");
 
-        let options = "";
+        const opts: string[] = [];
         if (currentMode === "duel" || currentMode === "goals") {
-          options += `\nWin score: ${winScore}   ([ / ] to adjust)`;
+          opts.push(`Win score: ${winScore}   ([ / ])`);
         }
         if (currentMode === "goals") {
-          options += `\nGoal preset: ${GOAL_PRESET_LABEL[goalPreset]}   (G to cycle)`;
+          opts.push(`Goal size: ${GOAL_SIZE_LABELS[settings.sizeIdx]}   (G / g)`);
+          opts.push(`Goal drift: ${GOAL_DRIFT_LABELS[settings.driftIdx]}   (M / m)`);
+          opts.push(`Disappear: ${DISAPPEAR_LABELS[settings.disappearIdx]}   (D / d)`);
+        }
+        opts.push(`Free move: ${settings.freeMove ? "On" : "Off"}   (F)`);
+        if (settings.freeMove) {
+          opts.push(`Move range: ${MOVE_RANGE_LABELS[settings.moveRangeIdx]}   ( , / . )`);
         }
 
         return {
           title: "RICOCHET",
-          body: `${modeLines}\n${options}\n\nEnter to start  ·  R to restart  ·  Hold H for help`,
+          body: `${modeLines}\n\n${opts.join("\n")}\n\nEnter to start  ·  R to restart  ·  Hold H for help`,
           visible: true
         };
       }

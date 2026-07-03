@@ -53,27 +53,6 @@ window.addEventListener(
 createFixedLoop({
   update(dt: number): void {
     const global = input.consumeGlobal();
-    if (global.selectMode && game.phase === "title") {
-      game.selectMode(global.selectMode);
-    }
-    if (global.winScoreDelta !== 0) {
-      game.cycleWinScore(global.winScoreDelta);
-    }
-    if (global.sizeDelta !== 0) {
-      game.adjustSetting("size", global.sizeDelta);
-    }
-    if (global.driftDelta !== 0) {
-      game.adjustSetting("drift", global.driftDelta);
-    }
-    if (global.disappearDelta !== 0) {
-      game.adjustSetting("disappear", global.disappearDelta);
-    }
-    if (global.rangeDelta !== 0) {
-      game.adjustSetting("range", global.rangeDelta);
-    }
-    if (global.freeMoveToggled) {
-      game.toggleFreeMove();
-    }
     if (global.startPressed && game.phase === "title") {
       audio.initOnGesture();
       game.startRound();
@@ -84,7 +63,7 @@ createFixedLoop({
 
     const p1 = input.readPlayerOne();
     const p2 = input.readPlayerTwo();
-    game.update(dt, p1, p2, audio);
+    game.update(dt, p1, p2, input, audio);
 
     hud.setHud(game.getHud());
     hud.setOverlay(game.getOverlay(input.isHeld("KeyH")));

@@ -12,6 +12,7 @@ const BLOCKED_KEYS = new Set([
 export type PlayerInput = {
   x: number;
   y: number;
+  rot: number;
   primary: boolean;
   secondary: boolean;
 };
@@ -21,7 +22,11 @@ export type GlobalInput = {
   restartPressed: boolean;
   selectMode: ModeId | null;
   winScoreDelta: number;
-  cyclePresetPressed: boolean;
+  sizeDelta: number;
+  driftDelta: number;
+  disappearDelta: number;
+  rangeDelta: number;
+  freeMoveToggled: boolean;
 };
 
 const isDown = (set: Set<string>, code: string): boolean => set.has(code);
@@ -75,14 +80,36 @@ export class InputManager {
     if (this.consumePress("BracketRight")) {
       winScoreDelta += 1;
     }
-    const cyclePresetPressed = this.consumePress("KeyG");
-    return { startPressed, restartPressed, selectMode, winScoreDelta, cyclePresetPressed };
+    // Shift+key decreases, plain key increases (matches the "G / g" hint)
+    const sizeDelta = this.consumeAdjust("KeyG");
+    const driftDelta = this.consumeAdjust("KeyM");
+    const disappearDelta = this.consumeAdjust("KeyD");
+    let rangeDelta = 0;
+    if (this.consumePress("Comma")) {
+      rangeDelta -= 1;
+    }
+    if (this.consumePress("Period")) {
+      rangeDelta += 1;
+    }
+    const freeMoveToggled = this.consumePress("KeyF");
+    return {
+      startPressed,
+      restartPressed,
+      selectMode,
+      winScoreDelta,
+      sizeDelta,
+      driftDelta,
+      disappearDelta,
+      rangeDelta,
+      freeMoveToggled
+    };
   }
 
   readPlayerOne(): PlayerInput {
     return {
       x: Number(isDown(this.held, "KeyD")) - Number(isDown(this.held, "KeyA")),
       y: Number(isDown(this.held, "KeyS")) - Number(isDown(this.held, "KeyW")),
+      rot: Number(isDown(this.held, "KeyE")) - Number(isDown(this.held, "KeyQ")),
       primary: isDown(this.held, "ShiftLeft"),
       secondary: isDown(this.held, "Space")
     };
@@ -93,9 +120,18 @@ export class InputManager {
       x:
         Number(isDown(this.held, "ArrowRight")) - Number(isDown(this.held, "ArrowLeft")),
       y: Number(isDown(this.held, "ArrowDown")) - Number(isDown(this.held, "ArrowUp")),
+      rot: Number(isDown(this.held, "Period")) - Number(isDown(this.held, "Comma")),
       primary: isDown(this.held, "ShiftRight") || isDown(this.held, "Slash"),
       secondary: isDown(this.held, "Enter") || isDown(this.held, "NumpadEnter")
     };
+  }
+
+  // consume a press as +1, or -1 when a Shift key is held
+  private consumeAdjust(code: string): number {
+    if (!this.consumePress(code)) {
+      return 0;
+    }
+    return this.held.has("ShiftLeft") || this.held.has("ShiftRight") ? -1 : 1;
   }
 
   consumePress(code: string): boolean {

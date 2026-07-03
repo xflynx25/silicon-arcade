@@ -23,12 +23,7 @@ const audio = new AudioSystem();
 
 let width = 0;
 let height = 0;
-let lastBpm = 0;
-let game: Game = createGame(window.innerWidth, window.innerHeight);
-
-audio.setBeatCallback(() => {
-  game.onBeat();
-});
+const game: Game = createGame(window.innerWidth, window.innerHeight);
 
 const resize = (): void => {
   const dpr = window.devicePixelRatio || 1;
@@ -58,36 +53,18 @@ window.addEventListener(
 createFixedLoop({
   update(dt: number): void {
     const global = input.consumeGlobal();
-    if (global.tempoDelta !== 0) {
-      game.adjustBaseBpm(global.tempoDelta);
-    }
-    if (global.autoTempoToggle) {
-      game.toggleAutoTempo();
-    }
     if (global.startPressed && game.phase === "title") {
       audio.initOnGesture();
       game.startRound();
-      audio.setBpm(game.getBpm());
-      lastBpm = game.getBpm();
     }
     if (global.restartPressed) {
+      audio.initOnGesture();
       game.restartRound();
-      audio.setBpm(game.getBpm());
-      lastBpm = game.getBpm();
     }
 
     const p1 = input.readPlayerOne();
     const p2 = input.readPlayerTwo();
     game.update(dt, p1, p2, audio);
-
-    const currentBpm = game.getBpm();
-    if (game.phase === "playing" && currentBpm !== lastBpm) {
-      audio.setBpm(currentBpm);
-      lastBpm = currentBpm;
-    } else if (game.phase === "gameOver" || game.phase === "title") {
-      audio.stopBeat();
-      lastBpm = 0;
-    }
 
     hud.setHud(game.getHud());
     hud.setOverlay(game.getOverlay(input.isHeld("KeyH")));
