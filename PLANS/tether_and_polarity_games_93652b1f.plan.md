@@ -29,7 +29,7 @@ Blank repo, full from-scratch build. Two independent games in two folders, shari
 pnpm workspace at the root so a single `pnpm i` installs both, but each game lives in its own self-contained folder and runs on its own dev server.
 
 ```
-gf-game/
+silicon-arcade/
   package.json              # workspace root, scripts to run each game
   pnpm-workspace.yaml
   CHANGELOG.md

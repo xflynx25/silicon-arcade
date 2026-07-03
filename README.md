@@ -1,4 +1,4 @@
-# GF Game — Local 2-Player Games
+# Silicon Arcade — Local 2-Player Games
 
 Six local 2-player keyboard games in one workspace.
 
