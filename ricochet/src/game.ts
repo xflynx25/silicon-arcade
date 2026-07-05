@@ -523,98 +523,122 @@ export const createGame = (width: number, height: number): Game => {
 
       ball.spin *= 0.998;
       ball.vel.x += ball.spin * ball.vel.y * 0.0008;
-      ball.pos.x += ball.vel.x * dt;
-      ball.pos.y += ball.vel.y * dt;
 
-      trails.push({ x: ball.pos.x, y: ball.pos.y, age: 0.35 });
+      const top = WALL_PAD;
+      const bottom = h - WALL_PAD;
+      const leftWall = WALL_PAD;
+      const rightWall = w - WALL_PAD;
+      const speedCap = settings.uncappedSpeed ? null : 720;
+
+      // goal drift / disappear advances once per frame
+      if (currentMode === "goals") {
+        updateGoals(dt);
+      }
+
+      // Continuous collision via substepping: cap each integration step to a
+      // hit-radius of travel so even an uncapped, very fast ball must cross the
+      // paddle plane and gets a chance to be hit instead of teleporting past it.
+      // At normal speeds this resolves to a single step, so ordinary play is
+      // unchanged. The paddle is tested before the goal / exit plane so a ball
+      // reaching the paddle is deflected rather than scoring on the same step.
+      const maxStep = BALL_R + PADDLE_THICK;
+      const steps = Math.min(64, Math.max(1, Math.ceil((len(ball.vel) * dt) / maxStep)));
+      const subDt = dt / steps;
+
+      for (let s = 0; s < steps; s += 1) {
+        ball.pos.x += ball.vel.x * subDt;
+        ball.pos.y += ball.vel.y * subDt;
+
+        trails.push({ x: ball.pos.x, y: ball.pos.y, age: 0.35 });
+
+        if (ball.pos.y - BALL_R < top) {
+          ball.pos.y = top + BALL_R;
+          ball.vel.y = Math.abs(ball.vel.y);
+          enforceMinHorizontal(ball);
+          audio.bounce();
+        }
+        if (ball.pos.y + BALL_R > bottom) {
+          ball.pos.y = bottom - BALL_R;
+          ball.vel.y = -Math.abs(ball.vel.y);
+          enforceMinHorizontal(ball);
+          audio.bounce();
+        }
+
+        const p1Seg = paddleEndpoints(p1, leftWall, p1.smash * 22);
+        const p2Seg = paddleEndpoints(p2, rightWall, p2.smash * 22);
+
+        const p1Hit = reflectBallOffSegment(
+          ball,
+          p1Seg.a,
+          p1Seg.b,
+          p1.smash,
+          p1.spinReady,
+          audio,
+          particles,
+          speedCap
+        );
+        if (p1Hit) {
+          p1.spinReady = false;
+        }
+        const p2Hit = reflectBallOffSegment(
+          ball,
+          p2Seg.a,
+          p2Seg.b,
+          p2.smash,
+          p2.spinReady,
+          audio,
+          particles,
+          speedCap
+        );
+        if (p2Hit) {
+          p2.spinReady = false;
+        }
+        if (
+          currentMode === "rally" &&
+          (p1Hit || p2Hit) &&
+          ball.rally > 0 &&
+          ball.rally % 5 === 0
+        ) {
+          audio.spin();
+        }
+
+        if (currentMode === "goals") {
+          if (ball.pos.x - BALL_R < leftWall - GOAL_DEPTH) {
+            if (tryScoreGoalZone("left", audio)) {
+              return;
+            }
+            ball.pos.x = leftWall - GOAL_DEPTH + BALL_R;
+            ball.vel.x = Math.abs(ball.vel.x);
+            enforceMinHorizontal(ball);
+            audio.bounce();
+          }
+          if (ball.pos.x + BALL_R > rightWall + GOAL_DEPTH) {
+            if (tryScoreGoalZone("right", audio)) {
+              return;
+            }
+            ball.pos.x = rightWall + GOAL_DEPTH - BALL_R;
+            ball.vel.x = -Math.abs(ball.vel.x);
+            enforceMinHorizontal(ball);
+            audio.bounce();
+          }
+        } else {
+          if (ball.pos.x - BALL_R < leftWall - GOAL_DEPTH) {
+            onBallExit("left", audio);
+            return;
+          }
+          if (ball.pos.x + BALL_R > rightWall + GOAL_DEPTH) {
+            onBallExit("right", audio);
+            return;
+          }
+        }
+      }
+
+      // fade the motion trail once per frame
       for (let i = trails.length - 1; i >= 0; i -= 1) {
         trails[i].age -= dt;
         if (trails[i].age <= 0) {
           trails.splice(i, 1);
         }
-      }
-
-      const top = WALL_PAD;
-      const bottom = h - WALL_PAD;
-      if (ball.pos.y - BALL_R < top) {
-        ball.pos.y = top + BALL_R;
-        ball.vel.y = Math.abs(ball.vel.y);
-        enforceMinHorizontal(ball);
-        audio.bounce();
-      }
-      if (ball.pos.y + BALL_R > bottom) {
-        ball.pos.y = bottom - BALL_R;
-        ball.vel.y = -Math.abs(ball.vel.y);
-        enforceMinHorizontal(ball);
-        audio.bounce();
-      }
-
-      const leftWall = WALL_PAD;
-      const rightWall = w - WALL_PAD;
-
-      if (currentMode === "goals") {
-        updateGoals(dt);
-        if (ball.pos.x - BALL_R < leftWall - GOAL_DEPTH) {
-          if (tryScoreGoalZone("left", audio)) {
-            return;
-          }
-          ball.pos.x = leftWall - GOAL_DEPTH + BALL_R;
-          ball.vel.x = Math.abs(ball.vel.x);
-          enforceMinHorizontal(ball);
-          audio.bounce();
-        }
-        if (ball.pos.x + BALL_R > rightWall + GOAL_DEPTH) {
-          if (tryScoreGoalZone("right", audio)) {
-            return;
-          }
-          ball.pos.x = rightWall + GOAL_DEPTH - BALL_R;
-          ball.vel.x = -Math.abs(ball.vel.x);
-          enforceMinHorizontal(ball);
-          audio.bounce();
-        }
-      } else {
-        if (ball.pos.x - BALL_R < leftWall - GOAL_DEPTH) {
-          onBallExit("left", audio);
-          return;
-        }
-        if (ball.pos.x + BALL_R > rightWall + GOAL_DEPTH) {
-          onBallExit("right", audio);
-          return;
-        }
-      }
-
-      const p1Seg = paddleEndpoints(p1, leftWall, p1.smash * 22);
-      const p2Seg = paddleEndpoints(p2, rightWall, p2.smash * 22);
-      const speedCap = settings.uncappedSpeed ? null : 720;
-
-      const p1Hit = reflectBallOffSegment(
-        ball,
-        p1Seg.a,
-        p1Seg.b,
-        p1.smash,
-        p1.spinReady,
-        audio,
-        particles,
-        speedCap
-      );
-      if (p1Hit) {
-        p1.spinReady = false;
-      }
-      const p2Hit = reflectBallOffSegment(
-        ball,
-        p2Seg.a,
-        p2Seg.b,
-        p2.smash,
-        p2.spinReady,
-        audio,
-        particles,
-        speedCap
-      );
-      if (p2Hit) {
-        p2.spinReady = false;
-      }
-      if (currentMode === "rally" && (p1Hit || p2Hit) && ball.rally > 0 && ball.rally % 5 === 0) {
-        audio.spin();
       }
     },
 
