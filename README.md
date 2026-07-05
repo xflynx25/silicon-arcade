@@ -75,10 +75,10 @@ Shared across all games:
 
 - The central star's gravity constantly pulls both comets inward — thrust to steer your orbit
 - **Dive close** to the star for a gravity-assist speed boost, then use it
-- Hold `Shift` / `RShift` to charge a **Flare** burst, release to lunge along your aim
-- `Space` / `Enter` **Shield** — a timed parry (reflects a ram / parries a bolt; cooldown)
+- Hold `Shift` / `RShift` to charge a **Flare** burst, release to lunge along your aim (a direct hit wins in Duel)
+- `Space` / `Enter` **Shield** — timed parry; blocks Flares and rams, perfect timing staggers your rival in Duel; in Rings, pulls nearby rings toward you
 - Any time: `[` / `]` adjust **Gravity** (0.4×–2.5×)
 - On title screen: `1` Duel · `2` Flares · `3` Rings, then `Enter` to start
-- **Duel** — competitive, best of 5; the **faster comet shatters the slower one** on impact (near-matched speeds just bounce). Two death lines: burn up in the star's **corona** or drift past the **void** edge
-- **Flares** — co-op survival; the star ejects plasma **bolts** you dodge (or parry with Shield) together. Corona and void are still lethal. Endurance run — tracks best survival time
-- **Rings** — co-op collection; fly either comet through glowing **rings** (gold rings worth 3) for a shared score against a 60s clock. Corona and void are soft walls here — no deaths, just flow
+- **Duel** — competitive, best of 5; **Flare-strike** or a fast ram (280+ speed, clearly faster) wins the round; Shield parries and perfect blocks stagger. Wider safe band than co-op — boundaries still kill
+- **Flares** — co-op survival; corona **creeps inward** each wave, bolt patterns rotate (burst / spiral / crossfire), homing bolts from wave 3, telegraphed aimed shots. **Three shared lives** — respawn on hit. Tracks best survival time
+- **Rings** — co-op collection; chain rings within 3s for combo bonus, **linked gold** needs both comets within 4s (+6), **risk rings** hug the corona (5 pts). Soft walls only — bounce resets combo

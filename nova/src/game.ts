@@ -1,10 +1,11 @@
 import type { InputManager, PlayerInput } from "./input";
 import { ParticleSystem } from "./particles";
 import { AudioSystem } from "./audio";
+import { CONTROLS, MODE_HELP, MODE_LABEL, MODE_TITLE_LINE, type ModeId } from "./modes";
 import { add, clamp, dist, len, normalize, scale, sub, vec, type Vec } from "./vec";
 
 export type GamePhase = "title" | "playing" | "roundEnd" | "matchEnd";
-export type Mode = "duel" | "flares" | "rings";
+export type Mode = ModeId;
 
 const SHIP_R = 13;
 const WIN_ROUNDS = 3; // duel: best of 5
@@ -19,10 +20,16 @@ const FLARE_SPAN = 560;
 
 const SHIELD_TIME = 0.32;
 const SHIELD_CD = 0.85;
+const PERFECT_PARRY_WINDOW = 0.12;
+const STAGGER_TIME = 0.4;
+const FLARE_STRIKE_WINDOW = 0.15;
 
 // A ram only kills when the aggressor has clearly slingshotted up to speed.
-const KILL_SPEED = 360;
-const KILL_RATIO = 1.3;
+const KILL_SPEED = 280;
+const KILL_RATIO = 1.15;
+
+const DUEL_CORONA_SCALE = 0.88;
+const DUEL_VOID_SCALE = 1.02;
 
 const GRAVITY_STEP = 0.15;
 const GRAVITY_MIN = 0.4;
@@ -31,13 +38,26 @@ const GRAVITY_MAX = 2.5;
 // Flares (co-op survival)
 const BOLT_R = 9;
 const WAVE_EVERY = 12; // seconds per difficulty step
+const CORONA_CREEP_PER_WAVE = 0.025;
+const CORONA_CREEP_MAX = 1.3;
+const FLARES_LIVES = 3;
+const BOLT_TELEGRAPH = 0.4;
+const HOMING_WAVE_MIN = 2;
 
 // Rings (co-op collection)
 const RUN_TIME = 60;
 const RING_R = 26;
 const RING_TARGET = 3;
 const RING_LIFE = 9;
+const RING_LIFE_RISK = 4;
 const GOLDEN_CHANCE = 0.18;
+const LINKED_GOLD_CHANCE = 0.2;
+const LINKED_GOLD_WINDOW = 4;
+const COMBO_WINDOW = 3;
+const RISK_RING_CHANCE = 0.12;
+const RISK_RING_VALUE = 5;
+const MAGNET_RANGE = 120;
+const MAGNET_PULL = 90;
 
 type Comet = {
   pos: Vec;
@@ -48,11 +68,14 @@ type Comet = {
   hue: number;
   dashDir: Vec;
   trail: Vec[];
+  flareStrikeWindow: number;
+  stagger: number;
 };
 
 type Bolt = {
   pos: Vec;
   vel: Vec;
+  homing: boolean;
 };
 
 type Ring = {
@@ -60,6 +83,15 @@ type Ring = {
   golden: boolean;
   life: number;
   pulse: number;
+  risk: boolean;
+  value: number;
+  linkId: number | null;
+  linkHalf: 1 | 2 | null;
+};
+
+type ActiveLink = {
+  timer: number;
+  halves: Set<1 | 2>;
 };
 
 export type Game = {
@@ -80,17 +112,6 @@ export type Game = {
   getOverlay: (helpHeld: boolean) => { title: string; body: string; visible: boolean };
 };
 
-const MODE_LABEL: Record<Mode, string> = {
-  duel: "DUEL",
-  flares: "FLARES",
-  rings: "RINGS"
-};
-
-const CONTROLS =
-  "P1  ·  W A S D thrust  ·  hold Left Shift charge Flare  ·  Space Shield\n" +
-  "P2  ·  Arrows thrust  ·  hold Right Shift charge Flare  ·  Enter Shield\n" +
-  "[ / ]  ·  tune gravity";
-
 const formatTime = (t: number): string => {
   const total = Math.max(0, Math.floor(t));
   const m = Math.floor(total / 60);
@@ -108,8 +129,10 @@ export const createGame = (width: number, height: number): Game => {
 
   // The three radii that define the ring of play, derived from screen size.
   let baseR = Math.min(w, h) * 0.5;
-  let coronaR = baseR * 0.14; // inside this = burn up
-  let voidR = baseR * 0.94; // outside this = lost to the void
+  let baseCoronaR = baseR * 0.14;
+  let baseVoidR = baseR * 0.94;
+  let coronaR = baseCoronaR; // inside this = burn up
+  let voidR = baseVoidR; // outside this = lost to the void
   let orbitR = baseR * 0.52; // spawn orbit
   const orbitSpeed = 250;
   let gm = orbitSpeed * orbitSpeed * orbitR; // GM so orbitR is a circular orbit at orbitSpeed
@@ -133,12 +156,19 @@ export const createGame = (width: number, height: number): Game => {
   let bestFlares = 0;
   let flareTimer = 0;
   let waveIndex = 0;
+  let sharedLives = FLARES_LIVES;
+  let starTelegraph = 0;
+  let pendingBoltPattern: number | null = null;
+  let nextLinkId = 1;
 
   // Rings state
   const rings: Ring[] = [];
+  const activeLinks = new Map<number, ActiveLink>();
   let runTime = RUN_TIME;
   let score = 0;
   let bestRings = 0;
+  let combo = 0;
+  let comboTimer = 0;
 
   const particles = new ParticleSystem();
 
@@ -150,7 +180,9 @@ export const createGame = (width: number, height: number): Game => {
     shieldCd: 0,
     hue: 190,
     dashDir: vec(0, -1),
-    trail: []
+    trail: [],
+    flareStrikeWindow: 0,
+    stagger: 0
   };
   const comet2: Comet = {
     pos: vec(0, 0),
@@ -160,17 +192,34 @@ export const createGame = (width: number, height: number): Game => {
     shieldCd: 0,
     hue: 25,
     dashDir: vec(0, 1),
-    trail: []
+    trail: [],
+    flareStrikeWindow: 0,
+    stagger: 0
   };
 
   const computeGeometry = (): void => {
     cx = w * 0.5;
     cy = h * 0.5;
     baseR = Math.min(w, h) * 0.5;
-    coronaR = baseR * 0.14;
-    voidR = baseR * 0.94;
+    baseCoronaR = baseR * 0.14;
+    baseVoidR = baseR * 0.94;
     orbitR = baseR * 0.52;
     gm = orbitSpeed * orbitSpeed * orbitR;
+    applyModeBoundaries();
+  };
+
+  const applyModeBoundaries = (): void => {
+    if (mode === "duel") {
+      coronaR = baseCoronaR * DUEL_CORONA_SCALE;
+      voidR = baseVoidR * DUEL_VOID_SCALE;
+    } else if (mode === "flares") {
+      const creep = Math.min(CORONA_CREEP_MAX, 1 + waveIndex * CORONA_CREEP_PER_WAVE);
+      coronaR = baseCoronaR * creep;
+      voidR = baseVoidR;
+    } else {
+      coronaR = baseCoronaR;
+      voidR = baseVoidR;
+    }
   };
 
   const resetComets = (): void => {
@@ -187,7 +236,27 @@ export const createGame = (width: number, height: number): Game => {
       c.shield = 0;
       c.shieldCd = 0;
       c.trail = [];
+      c.flareStrikeWindow = 0;
+      c.stagger = 0;
     }
+  };
+
+  const respawnComet = (c: Comet, player: 1 | 2): void => {
+    if (player === 1) {
+      c.pos = vec(cx - orbitR, cy);
+      c.vel = vec(0, -orbitSpeed);
+      c.dashDir = vec(0, -1);
+    } else {
+      c.pos = vec(cx + orbitR, cy);
+      c.vel = vec(0, orbitSpeed);
+      c.dashDir = vec(0, 1);
+    }
+    c.charge = 0;
+    c.shield = 0;
+    c.shieldCd = 0.5;
+    c.trail = [];
+    c.flareStrikeWindow = 0;
+    c.stagger = 0;
   };
 
   const resetArena = (): void => {
@@ -197,30 +266,139 @@ export const createGame = (width: number, height: number): Game => {
     rings.length = 0;
   };
 
+  const spawnRingAt = (angle: number, r: number, opts: Partial<Ring>): void => {
+    rings.push({
+      pos: vec(cx + Math.cos(angle) * r, cy + Math.sin(angle) * r),
+      golden: false,
+      life: RING_LIFE,
+      pulse: Math.random() * Math.PI * 2,
+      risk: false,
+      value: 1,
+      linkId: null,
+      linkHalf: null,
+      ...opts
+    });
+  };
+
   const spawnRing = (): void => {
+    if (Math.random() < RISK_RING_CHANCE) {
+      const angle = Math.random() * Math.PI * 2;
+      const r = coronaR + baseR * 0.06 + Math.random() * baseR * 0.04;
+      spawnRingAt(angle, r, { risk: true, value: RISK_RING_VALUE, life: RING_LIFE_RISK, golden: true });
+      return;
+    }
+
     const angle = Math.random() * Math.PI * 2;
     const rMin = coronaR + baseR * 0.14;
     const rMax = voidR - baseR * 0.1;
     const r = rMin + Math.random() * (rMax - rMin);
-    rings.push({
-      pos: vec(cx + Math.cos(angle) * r, cy + Math.sin(angle) * r),
-      golden: Math.random() < GOLDEN_CHANCE,
-      life: RING_LIFE,
-      pulse: Math.random() * Math.PI * 2
+    const golden = Math.random() < GOLDEN_CHANCE;
+
+    if (golden && Math.random() < LINKED_GOLD_CHANCE) {
+      const linkId = nextLinkId;
+      nextLinkId += 1;
+      const halfAngle = angle;
+      const oppAngle = angle + Math.PI;
+      const linkR = rMin + Math.random() * (rMax - rMin);
+      spawnRingAt(halfAngle, linkR, {
+        golden: true,
+        value: 1,
+        linkId,
+        linkHalf: 1
+      });
+      spawnRingAt(oppAngle, linkR, {
+        golden: true,
+        value: 1,
+        linkId,
+        linkHalf: 2
+      });
+      activeLinks.set(linkId, { timer: LINKED_GOLD_WINDOW, halves: new Set() });
+      return;
+    }
+
+    spawnRingAt(angle, r, {
+      golden,
+      value: golden ? 3 : 1
     });
   };
 
-  const spawnBolts = (): void => {
+  const pushBolt = (pos: Vec, vel: Vec, homing: boolean): void => {
+    bolts.push({ pos, vel, homing });
+  };
+
+  const nearestCometTo = (pos: Vec): Comet => {
+    return dist(pos, comet1.pos) <= dist(pos, comet2.pos) ? comet1 : comet2;
+  };
+
+  const spawnBurstBolts = (): void => {
     const count = 1 + Math.floor(waveIndex / 3);
     const speed = 150 + waveIndex * 22;
     for (let i = 0; i < count; i += 1) {
       const angle = Math.random() * Math.PI * 2;
       const dir = vec(Math.cos(angle), Math.sin(angle));
-      bolts.push({
-        pos: add(vec(cx, cy), scale(dir, coronaR + 4)),
-        vel: scale(dir, speed)
-      });
+      pushBolt(add(vec(cx, cy), scale(dir, coronaR + 4)), scale(dir, speed), false);
     }
+    if (waveIndex >= HOMING_WAVE_MIN) {
+      const target = nearestCometTo(vec(cx, cy));
+      const toTarget = normalize(sub(target.pos, vec(cx, cy)));
+      pushBolt(add(vec(cx, cy), scale(toTarget, coronaR + 4)), scale(toTarget, 95 + waveIndex * 8), true);
+    }
+  };
+
+  const spawnSpiralBolts = (): void => {
+    const count = 2 + Math.floor(waveIndex / 4);
+    const speed = 140 + waveIndex * 20;
+    const baseAngle = (waveIndex * 0.9) % (Math.PI * 2);
+    for (let i = 0; i < count; i += 1) {
+      const angle = baseAngle + (i * Math.PI * 2) / count;
+      const dir = vec(Math.cos(angle), Math.sin(angle));
+      pushBolt(add(vec(cx, cy), scale(dir, coronaR + 4)), scale(dir, speed), false);
+    }
+  };
+
+  const spawnCrossfireBolts = (): void => {
+    const speed = 165 + waveIndex * 24;
+    for (const c of [comet1, comet2]) {
+      const dir = normalize(sub(c.pos, vec(cx, cy)));
+      pushBolt(add(vec(cx, cy), scale(dir, coronaR + 4)), scale(dir, speed), false);
+    }
+    if (waveIndex >= HOMING_WAVE_MIN) {
+      const target = nearestCometTo(vec(cx, cy));
+      const toTarget = normalize(sub(target.pos, vec(cx, cy)));
+      pushBolt(add(vec(cx, cy), scale(toTarget, coronaR + 4)), scale(toTarget, 88 + waveIndex * 6), true);
+    }
+  };
+
+  const spawnBolts = (): void => {
+    const pattern = waveIndex % 3;
+    if (pattern === 0) {
+      spawnBurstBolts();
+    } else if (pattern === 1) {
+      spawnSpiralBolts();
+    } else {
+      spawnCrossfireBolts();
+    }
+  };
+
+  const queueBoltSpawn = (): void => {
+    const pattern = waveIndex % 3;
+    if (pattern === 2 || waveIndex >= HOMING_WAVE_MIN) {
+      pendingBoltPattern = pattern;
+      starTelegraph = BOLT_TELEGRAPH;
+      flareTimer = BOLT_TELEGRAPH;
+    } else {
+      spawnBolts();
+    }
+  };
+
+  const applyStagger = (c: Comet): void => {
+    c.stagger = STAGGER_TIME;
+    c.charge = 0;
+    c.flareStrikeWindow = 0;
+  };
+
+  const isPerfectParry = (c: Comet): boolean => {
+    return c.shield > SHIELD_TIME - PERFECT_PARRY_WINDOW;
   };
 
   const updateComet = (
@@ -245,13 +423,17 @@ export const createGame = (width: number, height: number): Game => {
       c.dashDir = thrust;
     }
 
+    c.flareStrikeWindow = Math.max(0, c.flareStrikeWindow - dt);
+    c.stagger = Math.max(0, c.stagger - dt);
+
     // Flare: charge while primary held, release to lunge along the aim.
-    if (input.primary) {
+    if (c.stagger <= 0 && input.primary) {
       c.charge = clamp(c.charge + FLARE_CHARGE_RATE * dt, 0, 1);
-    } else if (primaryReleased && c.charge > 0.05) {
+    } else if (primaryReleased && c.charge > 0.05 && c.stagger <= 0) {
       const power = FLARE_MIN + c.charge * FLARE_SPAN;
       c.vel = add(c.vel, scale(c.dashDir, power));
       c.charge = 0;
+      c.flareStrikeWindow = FLARE_STRIKE_WINDOW;
       audio.flare();
       particles.emit(c.pos, 10, c.hue, 160);
     } else if (!input.primary) {
@@ -314,10 +496,16 @@ export const createGame = (width: number, height: number): Game => {
 
     // A shield reflects the ram — the shielded comet always wins the exchange.
     if (comet1.shield > 0 && comet2.shield <= 0) {
+      if (isPerfectParry(comet1)) {
+        applyStagger(comet2);
+      }
       particles.emit(mid, 24, comet2.hue, 220);
       return 2;
     }
     if (comet2.shield > 0 && comet1.shield <= 0) {
+      if (isPerfectParry(comet2)) {
+        applyStagger(comet1);
+      }
       particles.emit(mid, 24, comet1.hue, 220);
       return 1;
     }
@@ -342,22 +530,26 @@ export const createGame = (width: number, height: number): Game => {
   };
 
   // Keep a comet inside the ring of play without killing it (co-op modes).
-  const softBoundary = (c: Comet): void => {
+  const softBoundary = (c: Comet): boolean => {
     const toStar = sub(vec(cx, cy), c.pos);
     const d = len(toStar);
     const inward = normalize(toStar);
     const inner = coronaR + SHIP_R;
     const outer = voidR - SHIP_R;
+    let bounced = false;
     if (d < inner) {
       c.pos = sub(vec(cx, cy), scale(inward, inner));
       const vn = c.vel.x * inward.x + c.vel.y * inward.y;
       c.vel = sub(c.vel, scale(inward, 2 * vn));
       shake = Math.max(shake, 4);
+      bounced = true;
     } else if (d > outer) {
       c.pos = sub(vec(cx, cy), scale(inward, outer));
       const vn = c.vel.x * inward.x + c.vel.y * inward.y;
       c.vel = sub(c.vel, scale(inward, 2 * vn));
+      bounced = true;
     }
+    return bounced;
   };
 
   const coronaDanger = (c: Comet): number => {
@@ -403,6 +595,26 @@ export const createGame = (width: number, height: number): Game => {
     audio.shatter();
   };
 
+  const damageCoopComet = (
+    c: Comet,
+    deadPos: Vec,
+    deadHue: number,
+    cause: string,
+    audio: AudioSystem
+  ): void => {
+    sharedLives -= 1;
+    shake = 12;
+    particles.emit(deadPos, 36, deadHue, 200);
+    audio.shatter();
+    if (sharedLives <= 0) {
+      endCoopRun(deadPos, deadHue, cause, audio);
+      return;
+    }
+    const player: 1 | 2 = c === comet1 ? 1 : 2;
+    respawnComet(c, player);
+    lastCause = `${cause} · ${sharedLives} lives left`;
+  };
+
   const beginMode = (): void => {
     resetArena();
     resetComets();
@@ -414,12 +626,56 @@ export const createGame = (width: number, height: number): Game => {
     lastCause = "";
     survivalTime = 0;
     waveIndex = 0;
+    sharedLives = FLARES_LIVES;
+    starTelegraph = 0;
+    pendingBoltPattern = null;
     flareTimer = mode === "flares" ? 2 : 0;
     runTime = RUN_TIME;
     score = 0;
+    combo = 0;
+    comboTimer = 0;
+    activeLinks.clear();
+    nextLinkId = 1;
+    applyModeBoundaries();
+  };
+
+  const checkFlareStrikes = (audio: AudioSystem): boolean => {
+    const pairs: [Comet, Comet, 1 | 2][] = [
+      [comet1, comet2, 1],
+      [comet2, comet1, 2]
+    ];
+    for (const [attacker, defender, attackerId] of pairs) {
+      if (attacker.flareStrikeWindow <= 0) {
+        continue;
+      }
+      if (dist(attacker.pos, defender.pos) > SHIP_R * 2.5) {
+        continue;
+      }
+      if (defender.shield > 0) {
+        if (isPerfectParry(defender)) {
+          applyStagger(attacker);
+        }
+        attacker.flareStrikeWindow = 0;
+        particles.emit(defender.pos, 14, defender.hue, 180);
+        audio.shield();
+        continue;
+      }
+      if (attacker.shield > 0 && defender.shield > 0) {
+        continue;
+      }
+      const winner: 1 | 2 = attackerId;
+      const loser: 1 | 2 = attackerId === 1 ? 2 : 1;
+      awardRound(winner, "Flare strike", loser === 1 ? comet1.pos : comet2.pos, loser === 1 ? comet1.hue : comet2.hue, audio);
+      return true;
+    }
+    return false;
   };
 
   const updateDuel = (audio: AudioSystem): void => {
+    if (checkFlareStrikes(audio)) {
+      return;
+    }
+
     const collisionLoser = resolveCollision(audio, true);
     if (collisionLoser !== null) {
       const winner: 1 | 2 = collisionLoser === 1 ? 2 : 1;
@@ -459,19 +715,39 @@ export const createGame = (width: number, height: number): Game => {
 
   const updateFlares = (dt: number, audio: AudioSystem): void => {
     survivalTime += dt;
-    waveIndex = Math.floor(survivalTime / WAVE_EVERY);
+    const nextWave = Math.floor(survivalTime / WAVE_EVERY);
+    if (nextWave !== waveIndex) {
+      waveIndex = nextWave;
+      applyModeBoundaries();
+    }
+
+    starTelegraph = Math.max(0, starTelegraph - dt);
 
     resolveCollision(audio, false);
 
-    // Emit plasma bolts from the star on a wave-scaled cadence.
     flareTimer -= dt;
     if (flareTimer <= 0) {
-      spawnBolts();
-      flareTimer = Math.max(0.55, 1.9 - waveIndex * 0.15);
+      if (pendingBoltPattern !== null) {
+        spawnBolts();
+        pendingBoltPattern = null;
+        flareTimer = Math.max(0.55, 1.9 - waveIndex * 0.15);
+      } else {
+        queueBoltSpawn();
+        if (pendingBoltPattern === null) {
+          flareTimer = Math.max(0.55, 1.9 - waveIndex * 0.15);
+        }
+      }
     }
 
     for (let i = bolts.length - 1; i >= 0; i -= 1) {
       const b = bolts[i];
+      if (b.homing) {
+        const target = nearestCometTo(b.pos);
+        const steer = normalize(sub(target.pos, b.pos));
+        const speed = len(b.vel);
+        const blended = normalize(add(scale(normalize(b.vel), 0.65), scale(steer, 0.35)));
+        b.vel = scale(blended, speed);
+      }
       b.pos = add(b.pos, scale(b.vel, dt));
       const d = dist(b.pos, vec(cx, cy));
       if (d > voidR + 40) {
@@ -482,13 +758,20 @@ export const createGame = (width: number, height: number): Game => {
       for (const c of [comet1, comet2]) {
         if (dist(b.pos, c.pos) < SHIP_R + BOLT_R) {
           if (c.shield > 0) {
-            // Shield parries the bolt.
             particles.emit(b.pos, 12, 45, 180);
             audio.shield();
             consumed = true;
           } else {
-            endCoopRun(c.pos, c.hue, `Struck by a flare · lasted ${formatTime(survivalTime)}`, audio);
-            return;
+            damageCoopComet(
+              c,
+              c.pos,
+              c.hue,
+              `Struck by a flare · lasted ${formatTime(survivalTime)}`,
+              audio
+            );
+            if (phase !== "playing") {
+              return;
+            }
           }
         }
       }
@@ -502,22 +785,87 @@ export const createGame = (width: number, height: number): Game => {
       const d = dist(c.pos, vec(cx, cy));
       if (d < coronaR) {
         audio.burn();
-        endCoopRun(c.pos, c.hue, `Burned in the star · lasted ${formatTime(survivalTime)}`, audio);
-        return;
-      }
-      if (d > voidR) {
-        endCoopRun(c.pos, c.hue, `Lost to the void · lasted ${formatTime(survivalTime)}`, audio);
-        return;
+        damageCoopComet(c, c.pos, c.hue, `Burned in the star · lasted ${formatTime(survivalTime)}`, audio);
+        if (phase !== "playing") {
+          return;
+        }
+      } else if (d > voidR) {
+        damageCoopComet(c, c.pos, c.hue, `Lost to the void · lasted ${formatTime(survivalTime)}`, audio);
+        if (phase !== "playing") {
+          return;
+        }
       }
     }
   };
 
+  const collectRing = (ring: Ring, audio: AudioSystem): number => {
+    let gain = ring.value;
+    if (ring.linkId !== null && ring.linkHalf !== null) {
+      const link = activeLinks.get(ring.linkId);
+      if (link !== undefined) {
+        link.halves.add(ring.linkHalf);
+        link.timer = LINKED_GOLD_WINDOW;
+        if (link.halves.has(1) && link.halves.has(2)) {
+          gain = 6;
+          activeLinks.delete(ring.linkId);
+        } else {
+          gain = 0;
+        }
+      }
+    }
+
+    if (gain <= 0) {
+      return 0;
+    }
+
+    if (comboTimer > 0) {
+      combo += 1;
+    } else {
+      combo = 1;
+    }
+    comboTimer = COMBO_WINDOW;
+    return gain * combo;
+  };
+
+  const applyRingMagnet = (c: Comet, dt: number): void => {
+    if (c.shield <= 0) {
+      return;
+    }
+    let nearest: Ring | null = null;
+    let nearestDist = MAGNET_RANGE;
+    for (const ring of rings) {
+      const d = dist(ring.pos, c.pos);
+      if (d < nearestDist) {
+        nearest = ring;
+        nearestDist = d;
+      }
+    }
+    if (nearest === null) {
+      return;
+    }
+    const pull = normalize(sub(c.pos, nearest.pos));
+    nearest.pos = add(nearest.pos, scale(pull, MAGNET_PULL * dt));
+  };
+
   const updateRings = (dt: number, audio: AudioSystem): void => {
     runTime -= dt;
+    comboTimer = Math.max(0, comboTimer - dt);
 
     resolveCollision(audio, false);
-    softBoundary(comet1);
-    softBoundary(comet2);
+    if (softBoundary(comet1) || softBoundary(comet2)) {
+      combo = 0;
+      comboTimer = 0;
+    }
+
+    applyRingMagnet(comet1, dt);
+    applyRingMagnet(comet2, dt);
+
+    for (const [linkId, link] of activeLinks) {
+      link.timer -= dt;
+      if (link.timer <= 0) {
+        activeLinks.delete(linkId);
+      }
+    }
 
     while (rings.length < RING_TARGET) {
       spawnRing();
@@ -528,16 +876,39 @@ export const createGame = (width: number, height: number): Game => {
       ring.life -= dt;
       ring.pulse += dt * 3;
       if (ring.life <= 0) {
+        if (ring.linkId !== null) {
+          activeLinks.delete(ring.linkId);
+        }
         rings.splice(i, 1);
         continue;
       }
-      const hit = dist(ring.pos, comet1.pos) < RING_R || dist(ring.pos, comet2.pos) < RING_R;
-      if (hit) {
-        const gain = ring.golden ? 3 : 1;
+      const hit1 = dist(ring.pos, comet1.pos) < RING_R;
+      const hit2 = dist(ring.pos, comet2.pos) < RING_R;
+      if (hit1 || hit2) {
+        if (ring.linkHalf !== null && hit1 && ring.linkHalf !== 1) {
+          continue;
+        }
+        if (ring.linkHalf !== null && hit2 && ring.linkHalf !== 2) {
+          continue;
+        }
+        const gain = collectRing(ring, audio);
+        if (gain <= 0) {
+          particles.emit(ring.pos, 10, 50, 120);
+          rings.splice(i, 1);
+          continue;
+        }
         score += gain;
-        particles.emit(ring.pos, ring.golden ? 26 : 14, ring.golden ? 50 : 160, 200);
+        particles.emit(ring.pos, ring.golden || ring.risk ? 26 : 14, ring.risk ? 30 : ring.golden ? 50 : 160, 200);
         audio.flare();
-        rings.splice(i, 1);
+        if (ring.linkId !== null && gain >= 6) {
+          for (let j = rings.length - 1; j >= 0; j -= 1) {
+            if (rings[j].linkId === ring.linkId) {
+              rings.splice(j, 1);
+            }
+          }
+        } else {
+          rings.splice(i, 1);
+        }
       }
     }
 
@@ -602,6 +973,7 @@ export const createGame = (width: number, height: number): Game => {
           roundCount += 1;
           resetArena();
           resetComets();
+          applyModeBoundaries();
         }
         return;
       }
@@ -669,17 +1041,22 @@ export const createGame = (width: number, height: number): Game => {
       // Collectible rings (Rings mode).
       for (const ring of rings) {
         const glow = 0.6 + Math.sin(ring.pulse) * 0.2;
-        const fade = clamp(ring.life / RING_LIFE, 0, 1);
-        const hue = ring.golden ? 48 : 165;
+        const lifeMax = ring.risk ? RING_LIFE_RISK : RING_LIFE;
+        const fade = clamp(ring.life / lifeMax, 0, 1);
+        const hue = ring.risk ? 30 : ring.golden ? 48 : 165;
         ctx.save();
         ctx.globalCompositeOperation = "lighter";
         ctx.strokeStyle = `hsla(${hue}, 100%, 65%, ${glow * fade})`;
         ctx.shadowColor = `hsl(${hue}, 100%, 55%)`;
-        ctx.shadowBlur = 14;
-        ctx.lineWidth = ring.golden ? 4 : 3;
+        ctx.shadowBlur = ring.linkId !== null ? 18 : 14;
+        ctx.lineWidth = ring.risk ? 5 : ring.golden ? 4 : 3;
+        if (ring.linkId !== null) {
+          ctx.setLineDash([5, 6]);
+        }
         ctx.beginPath();
         ctx.arc(ring.pos.x, ring.pos.y, RING_R, 0, Math.PI * 2);
         ctx.stroke();
+        ctx.setLineDash([]);
         ctx.restore();
       }
 
@@ -687,8 +1064,13 @@ export const createGame = (width: number, height: number): Game => {
       for (const b of bolts) {
         ctx.save();
         ctx.globalCompositeOperation = "lighter";
-        ctx.fillStyle = "rgba(255, 170, 70, 0.85)";
-        ctx.shadowColor = "rgba(255, 110, 30, 0.9)";
+        if (b.homing) {
+          ctx.fillStyle = "rgba(255, 90, 120, 0.9)";
+          ctx.shadowColor = "rgba(255, 40, 80, 0.95)";
+        } else {
+          ctx.fillStyle = "rgba(255, 170, 70, 0.85)";
+          ctx.shadowColor = "rgba(255, 110, 30, 0.9)";
+        }
         ctx.shadowBlur = 14;
         ctx.beginPath();
         ctx.arc(b.pos.x, b.pos.y, BOLT_R, 0, Math.PI * 2);
@@ -697,7 +1079,8 @@ export const createGame = (width: number, height: number): Game => {
       }
 
       // The star: layered radial glow with a slow pulse.
-      const pulse = 1 + Math.sin(starPulse * 2.2) * 0.06;
+      const telegraphBoost = starTelegraph > 0 ? starTelegraph / BOLT_TELEGRAPH : 0;
+      const pulse = 1 + Math.sin(starPulse * 2.2) * 0.06 + telegraphBoost * 0.18;
       ctx.save();
       ctx.globalCompositeOperation = "lighter";
       const glow = ctx.createRadialGradient(cx, cy, 0, cx, cy, coronaR * 2.6 * pulse);
@@ -754,6 +1137,14 @@ export const createGame = (width: number, height: number): Game => {
           ctx.stroke();
         }
 
+        if (c.stagger > 0) {
+          ctx.strokeStyle = `hsla(${c.hue}, 100%, 75%, ${c.stagger / STAGGER_TIME})`;
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.arc(c.pos.x, c.pos.y, SHIP_R + 12, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+
         if (c.shield > 0) {
           ctx.strokeStyle = `hsla(${c.hue}, 100%, 85%, ${c.shield / SHIELD_TIME})`;
           ctx.lineWidth = 3;
@@ -792,7 +1183,7 @@ export const createGame = (width: number, height: number): Game => {
       const grav = `Gravity ${gravityScale.toFixed(1)}×`;
       if (mode === "flares") {
         return {
-          left: `Wave ${waveIndex + 1}`,
+          left: `Wave ${waveIndex + 1} · Lives ${sharedLives}`,
           center:
             phase === "playing"
               ? `FLARES · Survived ${formatTime(survivalTime)} · ${grav}`
@@ -803,8 +1194,9 @@ export const createGame = (width: number, height: number): Game => {
         };
       }
       if (mode === "rings") {
+        const comboLabel = combo > 1 ? ` · ×${combo}` : "";
         return {
-          left: `Score ${score}`,
+          left: `Score ${score}${comboLabel}`,
           center:
             phase === "playing"
               ? `RINGS · ${formatTime(runTime)} left · ${grav}`
@@ -832,9 +1224,9 @@ export const createGame = (width: number, height: number): Game => {
       if (phase === "title") {
         const menu =
           "Choose a mode:\n" +
-          "  1  DUEL    — versus · best of 5 · slingshot & ram\n" +
-          "  2  FLARES  — co-op survival · dodge the star's bolts\n" +
-          "  3  RINGS   — co-op · fly through rings before time's up\n\n" +
+          `${MODE_TITLE_LINE.duel}\n` +
+          `${MODE_TITLE_LINE.flares}\n` +
+          `${MODE_TITLE_LINE.rings}\n\n` +
           `▶ selected: ${MODE_LABEL[mode]}\n\n` +
           CONTROLS;
         return {
@@ -867,7 +1259,7 @@ export const createGame = (width: number, height: number): Game => {
       if (helpHeld) {
         return {
           title: `HOW TO PLAY · ${MODE_LABEL[mode]}`,
-          body: CONTROLS + "\n\nRelease H to resume",
+          body: MODE_HELP[mode] + "\n\n" + CONTROLS + "\n\nRelease H to resume",
           visible: true
         };
       }
