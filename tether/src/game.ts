@@ -58,6 +58,7 @@ type Hazard = {
   pos: Vec;
   vel: Vec;
   radius: number;
+  entered: boolean;
 };
 
 type GameMode = "intro" | "playing" | "ended";
@@ -320,16 +321,44 @@ export class TetherGame {
     if (this.hazardTimer <= 0 && this.hazards.length < maxHazards) {
       this.hazardTimer = Math.max(0.7, (2.6 - this.wave * 0.18) / cfg.hazardCount);
       const speed = (110 + this.wave * 20) * cfg.hazardSpeed;
-      this.hazards.push({
-        pos: vec(Math.random() * this.world.width, Math.random() * this.world.height),
-        vel: vec((Math.random() - 0.5) * speed, (Math.random() - 0.5) * speed),
-        radius: (30 + Math.random() * 22 + this.wave * 2) * cfg.hazardSize
-      });
+      const radius = (30 + Math.random() * 22 + this.wave * 2) * cfg.hazardSize;
+      const side = Math.floor(Math.random() * 4);
+      const margin = radius + 10;
+      let pos: Vec;
+      let vel: Vec;
+      const along = (Math.random() - 0.5) * speed;
+      const inward = speed * (0.5 + Math.random() * 0.5);
+      if (side === 0) {
+        pos = vec(Math.random() * this.world.width, -margin);
+        vel = vec(along, inward);
+      } else if (side === 1) {
+        pos = vec(this.world.width + margin, Math.random() * this.world.height);
+        vel = vec(-inward, along);
+      } else if (side === 2) {
+        pos = vec(Math.random() * this.world.width, this.world.height + margin);
+        vel = vec(along, -inward);
+      } else {
+        pos = vec(-margin, Math.random() * this.world.height);
+        vel = vec(inward, along);
+      }
+      this.hazards.push({ pos, vel, radius, entered: false });
     }
 
     for (const hazard of this.hazards) {
       hazard.pos.x += hazard.vel.x * dt;
       hazard.pos.y += hazard.vel.y * dt;
+      if (
+        !hazard.entered &&
+        hazard.pos.x >= hazard.radius &&
+        hazard.pos.x <= this.world.width - hazard.radius &&
+        hazard.pos.y >= hazard.radius &&
+        hazard.pos.y <= this.world.height - hazard.radius
+      ) {
+        hazard.entered = true;
+      }
+      if (!hazard.entered) {
+        continue;
+      }
       if (hazard.pos.x < hazard.radius || hazard.pos.x > this.world.width - hazard.radius) {
         hazard.vel.x *= -1;
       }
@@ -407,7 +436,7 @@ export class TetherGame {
     const jitterX = (Math.random() - 0.5) * this.shake;
     const jitterY = (Math.random() - 0.5) * this.shake;
     ctx.save();
-    ctx.setTransform(1, 0, 0, 1, jitterX, jitterY);
+    ctx.translate(jitterX, jitterY);
 
     this.drawBackground();
     this.drawOrbs();
