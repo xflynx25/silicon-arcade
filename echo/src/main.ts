@@ -53,6 +53,9 @@ window.addEventListener(
 createFixedLoop({
   update(dt: number): void {
     const global = input.consumeGlobal(game.phase === "title");
+    if (global.selectMode && game.phase === "title") {
+      game.selectMode(global.selectMode);
+    }
     if (global.startPressed) {
       audio.initOnGesture();
       game.startRound();

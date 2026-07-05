@@ -29,6 +29,7 @@ export type GlobalInput = {
   disappearJumpToggled: boolean;
   rangeDelta: number;
   freeMoveToggled: boolean;
+  uncappedSpeedToggled: boolean;
 };
 
 const isDown = (set: Set<string>, code: string): boolean => set.has(code);
@@ -96,6 +97,7 @@ export class InputManager {
       rangeDelta += 1;
     }
     const freeMoveToggled = this.consumePress("KeyF");
+    const uncappedSpeedToggled = this.consumePress("KeyU");
     return {
       startPressed,
       restartPressed,
@@ -107,7 +109,8 @@ export class InputManager {
       disappearDelta,
       disappearJumpToggled,
       rangeDelta,
-      freeMoveToggled
+      freeMoveToggled,
+      uncappedSpeedToggled
     };
   }
 

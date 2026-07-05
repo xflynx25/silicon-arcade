@@ -26,7 +26,7 @@ pnpm dev:nova
 | **TETHER** | Co-opetition | Spirits linked by an elastic tether — swing, slingshot, collect orbs |
 | **POLARITY** | Competitive duel | Magnetic ships flip polarity to grab and shoot a shared charged ball |
 | **RICOCHET** | Competitive duel / co-op / pong | Tilt paddles to deflect a neon ball — smash lunge, curve spin, and three selectable modes |
-| **ECHO** | Co-op survival | Defend the Core in the dark — ping to reveal husks, strike to destroy them, resonate together |
+| **ECHO** | Co-op survival | Defend bases in the dark — ping to reveal foes, strike to destroy them, spread apart to resonate; two modes (Core / Grid) |
 | **VORTEX** | Sumo knockout | Charge-dash ships in a shrinking arena — knock your opponent out |
 | **NOVA** | Orbital duel / co-op | Comets orbit a star's gravity — slingshot for speed; ram to shatter your rival, or team up across three modes |
 
@@ -57,12 +57,14 @@ Shared across all games:
 
 ### ECHO specifics
 
-- Co-op survival in the dark — defend the shared **Core** at the center through 6 waves
-- **Husks** crawl in from the black and are nearly invisible until revealed
-- `Shift` / `RShift` **ping** — a sonar ring that lights up every husk it sweeps (they fade back to dark)
-- `Space` / `Enter` **strike** — destroys husks close to you; position using what your pings reveal
-- When both players' pings **overlap**, they **resonate** — the arena flashes bright and everything nearby is blasted apart
-- Let a husk reach the Core and it takes a bite; drop the Core to zero and the dark wins
+- Co-op survival in the dark — defend your base(s) through 6 waves of foes that crawl in from the black
+- On title screen: `1` **Core** (one central Core) · `2` **Grid** (three scattered nodes — lose even one and the run ends), then `Enter` to start
+- `Shift` / `RShift` **ping** — a sonar ring that lights up every foe it sweeps (they fade back to dark)
+- `Space` / `Enter` **strike** — destroys foes close to you; position using what your pings reveal
+- **Resonance rewards spreading out** — ping far apart from your partner and the rings blast the arena (the wider the gap, the bigger the hit); pinging on top of each other does nothing
+- Stand on a hurt base to slowly **repair** it
+- Foes: **drifters** crawl, **darters** are fast, **husks** and **brutes** are tanky, **broods** split into darters when killed, and **sirens** stop at range and drain your base from afar — camping won't save it, you have to go out and kill them
+- Personal light shrinks as waves escalate, so late waves lean harder on your pings
 
 ### VORTEX specifics
 

@@ -80,6 +80,9 @@ createFixedLoop({
     if (global.freeMoveToggled) {
       game.toggleFreeMove();
     }
+    if (global.uncappedSpeedToggled) {
+      game.toggleUncappedSpeed();
+    }
     if (global.startPressed && game.phase === "title") {
       audio.initOnGesture();
       game.startRound();

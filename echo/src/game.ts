@@ -1,11 +1,12 @@
 import type { PlayerInput } from "./input";
 import { ParticleSystem } from "./particles";
 import { AudioSystem } from "./audio";
-import { clamp, dist, len, normalize, sub, vec, type Vec } from "./vec";
+import { clamp, dist, len, lerp, normalize, sub, vec, type Vec } from "./vec";
+import { type ModeId, MODE_LABEL, MODE_DESCRIPTION, MODE_HELP } from "./modes";
 
 export type GamePhase = "title" | "playing" | "waveClear" | "gameOver" | "victory";
 
-type EnemyKind = "drifter" | "darter" | "husk";
+type EnemyKind = "drifter" | "darter" | "husk" | "siren" | "brood" | "brute";
 
 type Enemy = {
   pos: Vec;
@@ -17,6 +18,19 @@ type Enemy = {
   hue: number;
   coreDamage: number;
   lit: number; // seconds of remaining reveal from a ping
+  targetBase: number; // index of the base this foe is committed to (sirens lock on)
+  channeling: boolean; // siren currently draining a base from range
+};
+
+type Base = {
+  pos: Vec;
+  hp: number;
+  maxHp: number;
+  radius: number;
+  alive: boolean;
+  flash: number; // red pulse when bitten
+  heal: number; // green pulse while being repaired
+  threat: number; // distance from the nearest committed foe (for the warning ring)
 };
 
 type Ping = {
@@ -39,18 +53,25 @@ type Flash = {
   pos: Vec;
   life: number;
   hue: number;
+  radius: number;
 };
 
 const MAX_WAVES = 6;
 const CORE_MAX_HEALTH = 100;
+const GRID_NODE_HEALTH = 70;
 const CORE_RADIUS = 26;
+const NODE_RADIUS = 20;
 const CORE_HEAL_PER_WAVE = 12;
 
 const PLAYER_RADIUS = 13;
 const PLAYER_ACCEL = 2600;
 const PLAYER_DAMP = 8; // exponential velocity damping per second
 const PLAYER_MAX_SPEED = 380;
-const LIGHT_RADIUS = 118; // personal ambient light that dimly reveals nearby husks
+const LIGHT_RADIUS_BASE = 118; // personal ambient light, shrinks as waves escalate
+const LIGHT_RADIUS_MIN = 74;
+
+const REPAIR_MARGIN = 30; // how far past a base's rim a player can still repair it
+const REPAIR_RATE = 12; // hp per second restored while a player hugs a hurt base
 
 const PING_COOLDOWN = 1.1;
 const PING_MAX_RADIUS = 340;
@@ -62,26 +83,24 @@ const LIT_DURATION = 2.6;
 const STRIKE_COOLDOWN = 0.7;
 const STRIKE_RADIUS = 76;
 
-const RESONANCE_RANGE = 280; // ping origins within this distance resonate
-const RESONANCE_RADIUS = 210;
+// Resonance now rewards spreading out: pings closer than MIN_SEP don't connect at
+// all, and blast size/damage scale with how far apart the two origins are.
+const RESONANCE_MIN_SEP = 120;
+const RESONANCE_MAX_SEP = 520;
+const RESONANCE_MIN_RADIUS = 120;
+const RESONANCE_MAX_RADIUS = 320;
+const RESONANCE_COOLDOWN = 0.6;
+
+const SIEGE_RANGE = 240; // sirens stop and channel once this close to their base
+const SIEGE_DPS = 7; // hp/s a channeling siren drains from range
 
 const ENEMY_BASE_SPEED = 46;
 const WAVE_CLEAR_TIME = 2.2;
 
-const HELP_BODY =
-  "BLACKOUT — co-op survival in the dark. Defend the Core at the center.\n" +
-  "Husks crawl in from the black, and you can barely see them.\n\n" +
-  "· PING sends out a sonar ring — every husk it sweeps lights up, then fades.\n" +
-  "· STRIKE destroys husks close to you; position using what your pings reveal.\n" +
-  "· When both players' pings OVERLAP, they RESONATE — the whole arena flashes\n" +
-  "  bright and everything caught in it is blasted apart.\n" +
-  "· Let a husk reach the Core and it takes a bite. Survive all 6 waves.\n\n" +
-  "P1  ·  W A S D move  ·  Left Shift ping  ·  Space strike\n" +
-  "P2  ·  Arrow keys move  ·  Right Shift ping  ·  Enter strike";
-
 export type Game = {
   phase: GamePhase;
   resize: (w: number, h: number) => void;
+  selectMode: (id: ModeId) => void;
   startRound: () => void;
   restartRound: () => void;
   update: (dt: number, p1: PlayerInput, p2: PlayerInput, audio: AudioSystem) => void;
@@ -122,6 +141,30 @@ const enemyStats = (
         hue: 300,
         coreDamage: 16
       };
+    case "siren":
+      return {
+        hp: 3,
+        radius: 12,
+        speed: ENEMY_BASE_SPEED * 1.15 * speedMult,
+        hue: 150,
+        coreDamage: 6
+      };
+    case "brood":
+      return {
+        hp: 2,
+        radius: 14,
+        speed: ENEMY_BASE_SPEED * 0.92 * speedMult,
+        hue: 265,
+        coreDamage: 8
+      };
+    case "brute":
+      return {
+        hp: 7,
+        radius: 24,
+        speed: ENEMY_BASE_SPEED * 0.5 * speedMult,
+        hue: 350,
+        coreDamage: 24
+      };
     default:
       return {
         hp: 1,
@@ -138,9 +181,15 @@ const waveComposition = (wave: number): EnemyKind[] => {
   const drifters = 4 + wave * 2;
   const darters = wave >= 2 ? Math.floor(wave * 1.2) : 0;
   const husks = wave >= 3 ? Math.floor((wave - 2) * 1.4) : 0;
+  const sirens = wave >= 2 ? Math.min(1 + Math.floor((wave - 2) / 2), 3) : 0;
+  const broods = wave >= 3 ? Math.floor((wave - 1) * 0.7) : 0;
+  const brutes = wave >= 4 ? wave - 3 : 0;
   for (let i = 0; i < drifters; i += 1) kinds.push("drifter");
   for (let i = 0; i < darters; i += 1) kinds.push("darter");
   for (let i = 0; i < husks; i += 1) kinds.push("husk");
+  for (let i = 0; i < sirens; i += 1) kinds.push("siren");
+  for (let i = 0; i < broods; i += 1) kinds.push("brood");
+  for (let i = 0; i < brutes; i += 1) kinds.push("brute");
   // shuffle so kinds interleave in the spawn queue
   for (let i = kinds.length - 1; i > 0; i -= 1) {
     const j = Math.floor(Math.random() * (i + 1));
@@ -155,20 +204,19 @@ export const createGame = (width: number, height: number): Game => {
   let phase: GamePhase = "title";
   let cx = w * 0.5;
   let cy = h * 0.5;
+  let selectedMode: ModeId = "core";
 
   let wave = 1;
-  let coreHealth = CORE_MAX_HEALTH;
-  let coreFlash = 0; // red pulse when the core is bitten
   let corePulse = 0;
   let shake = 0;
   let waveTimer = 0;
-  let nearestCoreThreat = Infinity;
 
   const players: [PlayerNode, PlayerNode] = [
     { pos: vec(w * 0.35, h * 0.5), vel: vec(), hue: 190, pingCooldown: 0, strikeCooldown: 0, score: 0 },
     { pos: vec(w * 0.65, h * 0.5), vel: vec(), hue: 315, pingCooldown: 0, strikeCooldown: 0, score: 0 }
   ];
 
+  let bases: Base[] = [];
   const enemies: Enemy[] = [];
   const pings: Ping[] = [];
   const strikes: Strike[] = [];
@@ -178,8 +226,45 @@ export const createGame = (width: number, height: number): Game => {
   const spawnQueue: EnemyKind[] = [];
   let spawnTimer = 0;
   let resonanceFlash = 0;
+  let resonanceCooldown = 0;
 
-  const core = (): Vec => vec(cx, cy);
+  const makeBase = (pos: Vec, maxHp: number, radius: number): Base => ({
+    pos,
+    hp: maxHp,
+    maxHp,
+    radius,
+    alive: true,
+    flash: 0,
+    heal: 0,
+    threat: Infinity
+  });
+
+  const buildBases = (): Base[] => {
+    if (selectedMode === "grid") {
+      const r = Math.min(w, h) * 0.28;
+      const angles = [-Math.PI / 2, Math.PI / 6, (5 * Math.PI) / 6];
+      return angles.map((a) =>
+        makeBase(vec(cx + Math.cos(a) * r, cy + Math.sin(a) * r), GRID_NODE_HEALTH, NODE_RADIUS)
+      );
+    }
+    return [makeBase(vec(cx, cy), CORE_MAX_HEALTH, CORE_RADIUS)];
+  };
+
+  const nearestBaseIndex = (pos: Vec): number => {
+    let best = -1;
+    let bestD = Infinity;
+    for (let i = 0; i < bases.length; i += 1) {
+      if (!bases[i].alive) continue;
+      const d = dist(pos, bases[i].pos);
+      if (d < bestD) {
+        bestD = d;
+        best = i;
+      }
+    }
+    return best;
+  };
+
+  const lightRadius = (): number => Math.max(LIGHT_RADIUS_MIN, LIGHT_RADIUS_BASE - (wave - 1) * 8);
 
   const spawnInterval = (): number => Math.max(0.28, 0.72 - (wave - 1) * 0.05);
 
@@ -188,15 +273,8 @@ export const createGame = (width: number, height: number): Game => {
     spawnTimer = 0.4;
   };
 
-  const spawnEnemy = (kind: EnemyKind): void => {
+  const addEnemy = (kind: EnemyKind, pos: Vec): void => {
     const stats = enemyStats(kind, wave);
-    const side = Math.floor(Math.random() * 4);
-    let pos: Vec;
-    const margin = 30;
-    if (side === 0) pos = vec(Math.random() * w, -margin);
-    else if (side === 1) pos = vec(w + margin, Math.random() * h);
-    else if (side === 2) pos = vec(Math.random() * w, h + margin);
-    else pos = vec(-margin, Math.random() * h);
     enemies.push({
       pos,
       vel: vec(),
@@ -206,16 +284,27 @@ export const createGame = (width: number, height: number): Game => {
       speed: stats.speed,
       hue: stats.hue,
       coreDamage: stats.coreDamage,
-      lit: 0
+      lit: 0,
+      targetBase: Math.max(0, nearestBaseIndex(pos)),
+      channeling: false
     });
+  };
+
+  const spawnEnemy = (kind: EnemyKind): void => {
+    const side = Math.floor(Math.random() * 4);
+    let pos: Vec;
+    const margin = 30;
+    if (side === 0) pos = vec(Math.random() * w, -margin);
+    else if (side === 1) pos = vec(w + margin, Math.random() * h);
+    else if (side === 2) pos = vec(Math.random() * w, h + margin);
+    else pos = vec(-margin, Math.random() * h);
+    addEnemy(kind, pos);
   };
 
   const resetSession = (): void => {
     wave = 1;
-    coreHealth = CORE_MAX_HEALTH;
-    coreFlash = 0;
     shake = 0;
-    nearestCoreThreat = Infinity;
+    bases = buildBases();
     players[0].pos = vec(w * 0.35, h * 0.5);
     players[0].vel = vec();
     players[0].pingCooldown = 0;
@@ -232,6 +321,7 @@ export const createGame = (width: number, height: number): Game => {
     flashes.length = 0;
     spawnQueue.length = 0;
     resonanceFlash = 0;
+    resonanceCooldown = 0;
     queueWave();
   };
 
@@ -242,9 +332,17 @@ export const createGame = (width: number, height: number): Game => {
   };
 
   const killEnemy = (enemy: Enemy, by: PlayerNode | null, audio: AudioSystem): void => {
-    particles.emit(enemy.pos, enemy.kind === "husk" ? 22 : 12, enemy.hue, 180);
+    particles.emit(enemy.pos, enemy.kind === "husk" || enemy.kind === "brute" ? 24 : 12, enemy.hue, 180);
     if (by) {
       by.score += 1;
+    }
+    // Broods burst into a spray of fast darters where they died — killing one
+    // point-blank at a base dumps the swarm right onto it.
+    if (enemy.kind === "brood") {
+      for (let i = 0; i < 3; i += 1) {
+        const off = vec(enemy.pos.x + (Math.random() - 0.5) * 18, enemy.pos.y + (Math.random() - 0.5) * 18);
+        addEnemy("darter", off);
+      }
     }
     audio.hit();
   };
@@ -264,17 +362,24 @@ export const createGame = (width: number, height: number): Game => {
     return false;
   };
 
-  const triggerResonance = (mid: Vec, by: PlayerNode, audio: AudioSystem): void => {
-    resonanceFlash = 1;
-    flashes.push({ pos: mid, life: 1, hue: 275 });
-    shake = Math.max(shake, 9);
+  const triggerResonance = (
+    mid: Vec,
+    radius: number,
+    damage: number,
+    knockback: number,
+    by: PlayerNode,
+    audio: AudioSystem
+  ): void => {
+    resonanceFlash = clamp(radius / RESONANCE_MAX_RADIUS, 0.5, 1);
+    flashes.push({ pos: mid, life: 1, hue: 275, radius });
+    shake = Math.max(shake, 6 + resonanceFlash * 5);
     audio.resonance();
     for (let i = enemies.length - 1; i >= 0; i -= 1) {
       const enemy = enemies[i];
-      if (dist(enemy.pos, mid) <= RESONANCE_RADIUS + enemy.radius) {
+      if (dist(enemy.pos, mid) <= radius + enemy.radius) {
         enemy.lit = LIT_DURATION;
-        pushEnemy(enemy, mid, 260);
-        if (damageEnemy(enemy, 2, by, audio)) {
+        pushEnemy(enemy, mid, knockback);
+        if (damageEnemy(enemy, damage, by, audio)) {
           enemies.splice(i, 1);
         }
       }
@@ -287,14 +392,22 @@ export const createGame = (width: number, height: number): Game => {
     }
     player.pingCooldown = PING_COOLDOWN;
     const origin = vec(player.pos.x, player.pos.y);
-    // resonance: does the other player have a fresh ping nearby?
-    for (const other of pings) {
-      if (other.player !== index && !other.resonated && other.life > 0.15) {
-        if (dist(other.origin, origin) <= RESONANCE_RANGE) {
-          other.resonated = true;
-          const mid = vec((other.origin.x + origin.x) / 2, (other.origin.y + origin.y) / 2);
-          triggerResonance(mid, player, audio);
-          break;
+    // resonance: does the other player have a fresh ping far enough away?
+    if (resonanceCooldown <= 0) {
+      for (const other of pings) {
+        if (other.player !== index && !other.resonated && other.life > 0.15) {
+          const sep = dist(other.origin, origin);
+          if (sep >= RESONANCE_MIN_SEP && sep <= RESONANCE_MAX_SEP) {
+            other.resonated = true;
+            const t = clamp((sep - RESONANCE_MIN_SEP) / (RESONANCE_MAX_SEP - RESONANCE_MIN_SEP), 0, 1);
+            const radius = lerp(RESONANCE_MIN_RADIUS, RESONANCE_MAX_RADIUS, t);
+            const damage = 2 + Math.floor(t * 3); // 2 -> 5 with separation
+            const knockback = lerp(200, 340, t);
+            const mid = vec((other.origin.x + origin.x) / 2, (other.origin.y + origin.y) / 2);
+            triggerResonance(mid, radius, damage, knockback, player, audio);
+            resonanceCooldown = RESONANCE_COOLDOWN;
+            break;
+          }
         }
       }
     }
@@ -358,36 +471,90 @@ export const createGame = (width: number, height: number): Game => {
     }
   };
 
+  const repairBases = (dt: number): void => {
+    for (const base of bases) {
+      if (!base.alive || base.hp >= base.maxHp) continue;
+      for (const player of players) {
+        if (dist(player.pos, base.pos) <= base.radius + REPAIR_MARGIN) {
+          base.hp = Math.min(base.maxHp, base.hp + REPAIR_RATE * dt);
+          base.heal = 1;
+          break;
+        }
+      }
+    }
+  };
+
+  const killBase = (base: Base, audio: AudioSystem): void => {
+    base.alive = false;
+    base.hp = 0;
+    base.flash = 1;
+    shake = Math.max(shake, 12);
+    particles.emit(base.pos, 30, 0, 240);
+    phase = "gameOver";
+    audio.gameOver();
+  };
+
   const updateEnemies = (dt: number, audio: AudioSystem): void => {
-    const c = core();
-    nearestCoreThreat = Infinity;
+    for (const base of bases) {
+      base.threat = Infinity;
+      base.flash = Math.max(0, base.flash - dt * 2);
+      base.heal = Math.max(0, base.heal - dt * 3);
+    }
+
     for (let i = enemies.length - 1; i >= 0; i -= 1) {
       const enemy = enemies[i];
-      enemy.lit = Math.max(0, enemy.lit - dt);
-      const toCore = sub(c, enemy.pos);
-      const d = len(toCore);
-      const steer = d > 0.001 ? { x: toCore.x / d, y: toCore.y / d } : vec();
-      enemy.pos.x += steer.x * enemy.speed * dt + enemy.vel.x * dt;
-      enemy.pos.y += steer.y * enemy.speed * dt + enemy.vel.y * dt;
+
+      // (re)acquire a target base if the committed one is gone
+      if (enemy.targetBase < 0 || !bases[enemy.targetBase] || !bases[enemy.targetBase].alive) {
+        enemy.targetBase = nearestBaseIndex(enemy.pos);
+      } else if (enemy.kind !== "siren") {
+        // non-sirens always chase whatever base is nearest right now
+        enemy.targetBase = nearestBaseIndex(enemy.pos);
+      }
+      const base = bases[enemy.targetBase];
+      if (!base) {
+        continue;
+      }
+
+      const toBase = sub(base.pos, enemy.pos);
+      const d = len(toBase);
+      const dir = d > 0.001 ? { x: toBase.x / d, y: toBase.y / d } : vec();
+
+      enemy.channeling = false;
+      if (enemy.kind === "siren" && d <= SIEGE_RANGE) {
+        // Parked at range, draining from afar — self-revealed while it wails.
+        enemy.channeling = true;
+        enemy.lit = Math.max(enemy.lit, 0.25);
+        base.hp -= SIEGE_DPS * dt;
+        // only knockback moves it now (no steering)
+        enemy.pos.x += enemy.vel.x * dt;
+        enemy.pos.y += enemy.vel.y * dt;
+      } else {
+        enemy.lit = Math.max(0, enemy.lit - dt);
+        enemy.pos.x += dir.x * enemy.speed * dt + enemy.vel.x * dt;
+        enemy.pos.y += dir.y * enemy.speed * dt + enemy.vel.y * dt;
+      }
+
       const decay = Math.exp(-4 * dt);
       enemy.vel.x *= decay;
       enemy.vel.y *= decay;
 
-      const coreDist = d - CORE_RADIUS;
-      if (coreDist < nearestCoreThreat) {
-        nearestCoreThreat = coreDist;
+      base.threat = Math.min(base.threat, d - base.radius);
+
+      if (base.hp <= 0) {
+        killBase(base, audio);
+        return;
       }
 
-      if (d <= CORE_RADIUS + enemy.radius) {
-        coreHealth = Math.max(0, coreHealth - enemy.coreDamage);
-        coreFlash = 1;
+      if (d <= base.radius + enemy.radius) {
+        base.hp -= enemy.coreDamage;
+        base.flash = 1;
         shake = Math.max(shake, 8);
         particles.emit(enemy.pos, 16, 0, 200);
         audio.coreHit();
         enemies.splice(i, 1);
-        if (coreHealth <= 0) {
-          phase = "gameOver";
-          audio.gameOver();
+        if (base.hp <= 0) {
+          killBase(base, audio);
           return;
         }
       }
@@ -424,6 +591,14 @@ export const createGame = (width: number, height: number): Game => {
     }
   };
 
+  const lowestBaseFrac = (): number => {
+    let lo = 1;
+    for (const base of bases) {
+      lo = Math.min(lo, Math.max(0, base.hp) / base.maxHp);
+    }
+    return lo;
+  };
+
   return {
     get phase() {
       return phase;
@@ -434,6 +609,12 @@ export const createGame = (width: number, height: number): Game => {
       h = nh;
       cx = w * 0.5;
       cy = h * 0.5;
+    },
+
+    selectMode(id: ModeId): void {
+      if (phase === "title") {
+        selectedMode = id;
+      }
     },
 
     startRound(): void {
@@ -449,9 +630,9 @@ export const createGame = (width: number, height: number): Game => {
     update(dt: number, p1: PlayerInput, p2: PlayerInput, audio: AudioSystem): void {
       particles.update(dt);
       shake = Math.max(0, shake - dt * 22);
-      coreFlash = Math.max(0, coreFlash - dt * 2);
       corePulse = (corePulse + dt * 1.6) % (Math.PI * 2);
       resonanceFlash = Math.max(0, resonanceFlash - dt * 2.2);
+      resonanceCooldown = Math.max(0, resonanceCooldown - dt);
 
       for (let i = strikes.length - 1; i >= 0; i -= 1) {
         strikes[i].life -= dt;
@@ -478,12 +659,13 @@ export const createGame = (width: number, height: number): Game => {
 
       updatePlayer(players[0], p1, 1, dt, audio);
       updatePlayer(players[1], p2, 2, dt, audio);
+      repairBases(dt);
       updatePings(dt);
       advanceSpawns(dt);
       updateEnemies(dt, audio);
 
       if (phase !== "playing") {
-        return; // core died mid-update
+        return; // a base fell mid-update
       }
 
       if (spawnQueue.length === 0 && enemies.length === 0) {
@@ -492,7 +674,9 @@ export const createGame = (width: number, height: number): Game => {
           audio.victory();
         } else {
           wave += 1;
-          coreHealth = Math.min(CORE_MAX_HEALTH, coreHealth + CORE_HEAL_PER_WAVE);
+          for (const base of bases) {
+            if (base.alive) base.hp = Math.min(base.maxHp, base.hp + CORE_HEAL_PER_WAVE);
+          }
           phase = "waveClear";
           waveTimer = WAVE_CLEAR_TIME;
           audio.waveClear();
@@ -508,11 +692,11 @@ export const createGame = (width: number, height: number): Game => {
     },
 
     render(ctx: CanvasRenderingContext2D, rw: number, rh: number): void {
+      const light = lightRadius();
+
       // The dark.
       ctx.fillStyle = "#03040a";
       ctx.fillRect(0, 0, rw, rh);
-
-      const c = core();
 
       // Faint arena vignette ring so the space reads as bounded.
       ctx.save();
@@ -526,12 +710,12 @@ export const createGame = (width: number, height: number): Game => {
 
       // Personal light bubbles.
       for (const player of players) {
-        const grad = ctx.createRadialGradient(player.pos.x, player.pos.y, 0, player.pos.x, player.pos.y, LIGHT_RADIUS);
+        const grad = ctx.createRadialGradient(player.pos.x, player.pos.y, 0, player.pos.x, player.pos.y, light);
         grad.addColorStop(0, `hsla(${player.hue}, 90%, 60%, 0.12)`);
         grad.addColorStop(1, `hsla(${player.hue}, 90%, 60%, 0)`);
         ctx.fillStyle = grad;
         ctx.beginPath();
-        ctx.arc(player.pos.x, player.pos.y, LIGHT_RADIUS, 0, Math.PI * 2);
+        ctx.arc(player.pos.x, player.pos.y, light, 0, Math.PI * 2);
         ctx.fill();
       }
 
@@ -541,7 +725,7 @@ export const createGame = (width: number, height: number): Game => {
         ctx.fillRect(0, 0, rw, rh);
       }
       for (const flash of flashes) {
-        const r = RESONANCE_RADIUS * (1.1 - flash.life * 0.4);
+        const r = flash.radius * (1.05 - flash.life * 0.35);
         const grad = ctx.createRadialGradient(flash.pos.x, flash.pos.y, 0, flash.pos.x, flash.pos.y, r);
         grad.addColorStop(0, `hsla(${flash.hue}, 100%, 80%, ${flash.life * 0.5})`);
         grad.addColorStop(1, `hsla(${flash.hue}, 100%, 80%, 0)`);
@@ -549,6 +733,20 @@ export const createGame = (width: number, height: number): Game => {
         ctx.beginPath();
         ctx.arc(flash.pos.x, flash.pos.y, r, 0, Math.PI * 2);
         ctx.fill();
+      }
+
+      // Siren drain beams — a wailing line from foe to the base it's bleeding.
+      for (const enemy of enemies) {
+        if (!enemy.channeling) continue;
+        const base = bases[enemy.targetBase];
+        if (!base) continue;
+        const pulse = 0.4 + Math.sin(corePulse * 4) * 0.2;
+        ctx.strokeStyle = `hsla(${enemy.hue}, 100%, 70%, ${pulse})`;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(enemy.pos.x, enemy.pos.y);
+        ctx.lineTo(base.pos.x, base.pos.y);
+        ctx.stroke();
       }
 
       // Ping rings — no shadowBlur; expanding blurred strokes tank the frame.
@@ -566,8 +764,8 @@ export const createGame = (width: number, height: number): Game => {
         let vis = enemy.lit > 0 ? clamp(enemy.lit / LIT_DURATION, 0, 1) : 0;
         for (const player of players) {
           const d = dist(enemy.pos, player.pos);
-          if (d < LIGHT_RADIUS) {
-            vis = Math.max(vis, (1 - d / LIGHT_RADIUS) * 0.75);
+          if (d < light) {
+            vis = Math.max(vis, (1 - d / light) * 0.75);
           }
         }
         if (vis < 0.03) {
@@ -581,9 +779,9 @@ export const createGame = (width: number, height: number): Game => {
         ctx.beginPath();
         ctx.arc(enemy.pos.x, enemy.pos.y, enemy.radius, 0, Math.PI * 2);
         ctx.fill();
-        if (enemy.kind === "husk") {
+        if (enemy.kind === "husk" || enemy.kind === "brute" || enemy.kind === "siren") {
           ctx.strokeStyle = `hsla(${enemy.hue}, 100%, 80%, ${vis})`;
-          ctx.lineWidth = 2;
+          ctx.lineWidth = enemy.kind === "brute" ? 3 : 2;
           ctx.beginPath();
           ctx.arc(enemy.pos.x, enemy.pos.y, enemy.radius + 4, 0, Math.PI * 2);
           ctx.stroke();
@@ -599,27 +797,51 @@ export const createGame = (width: number, height: number): Game => {
         ctx.stroke();
       }
 
-      // Core — cheap dual-disc glow instead of shadowBlur.
-      const threatWarning = nearestCoreThreat < 160 && phase === "playing";
-      const corePulseScale = 1 + Math.sin(corePulse) * 0.06;
-      const healthT = coreHealth / CORE_MAX_HEALTH;
-      const coreHue = 200 - (1 - healthT) * 200; // blue -> red as it fails
-      const coreColor = coreFlash > 0.01 ? `hsla(0, 100%, 65%, 1)` : `hsla(${coreHue}, 90%, 62%, 1)`;
-      const coreRadius = CORE_RADIUS * corePulseScale;
-      ctx.fillStyle = `hsla(${coreHue}, 90%, 62%, ${0.18 + coreFlash * 0.2})`;
-      ctx.beginPath();
-      ctx.arc(c.x, c.y, coreRadius * 1.7, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = coreColor;
-      ctx.beginPath();
-      ctx.arc(c.x, c.y, coreRadius, 0, Math.PI * 2);
-      ctx.fill();
-      if (threatWarning) {
-        ctx.strokeStyle = `hsla(0, 100%, 60%, ${0.3 + Math.sin(corePulse * 3) * 0.2})`;
-        ctx.lineWidth = 2;
+      // Bases — cheap dual-disc glow instead of shadowBlur.
+      for (const base of bases) {
+        const healthT = Math.max(0, base.hp) / base.maxHp;
+        const baseHue = 200 - (1 - healthT) * 200; // blue -> red as it fails
+        const pulseScale = 1 + Math.sin(corePulse) * 0.06;
+        const radius = base.radius * pulseScale;
+        if (!base.alive) {
+          ctx.strokeStyle = "hsla(0, 60%, 40%, 0.5)";
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.arc(base.pos.x, base.pos.y, base.radius, 0, Math.PI * 2);
+          ctx.stroke();
+          continue;
+        }
+        const color = base.flash > 0.01 ? `hsla(0, 100%, 65%, 1)` : `hsla(${baseHue}, 90%, 62%, 1)`;
+        ctx.fillStyle = `hsla(${baseHue}, 90%, 62%, ${0.18 + base.flash * 0.2})`;
         ctx.beginPath();
-        ctx.arc(c.x, c.y, CORE_RADIUS + 12, 0, Math.PI * 2);
+        ctx.arc(base.pos.x, base.pos.y, radius * 1.7, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.arc(base.pos.x, base.pos.y, radius, 0, Math.PI * 2);
+        ctx.fill();
+        // health ring
+        ctx.strokeStyle = `hsla(${baseHue}, 90%, 70%, 0.85)`;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(base.pos.x, base.pos.y, base.radius + 7, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * healthT);
         ctx.stroke();
+        // repair pulse
+        if (base.heal > 0.01) {
+          ctx.strokeStyle = `hsla(140, 100%, 70%, ${base.heal * 0.7})`;
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.arc(base.pos.x, base.pos.y, base.radius + 12, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+        // threat warning
+        if (base.threat < 160 && phase === "playing") {
+          ctx.strokeStyle = `hsla(0, 100%, 60%, ${0.3 + Math.sin(corePulse * 3) * 0.2})`;
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.arc(base.pos.x, base.pos.y, base.radius + 16, 0, Math.PI * 2);
+          ctx.stroke();
+        }
       }
 
       // Players.
@@ -647,18 +869,26 @@ export const createGame = (width: number, height: number): Game => {
       particles.render(ctx);
       ctx.restore();
 
-      // Core health bar.
+      // Lowest-base health bar.
       const barW = rw - 80;
+      const lo = lowestBaseFrac();
+      const barHue = 200 - (1 - lo) * 200;
       ctx.fillStyle = "rgba(255,255,255,0.12)";
       ctx.fillRect(40, rh - 34, barW, 8);
-      ctx.fillStyle = `hsla(${coreHue}, 90%, 60%, 0.9)`;
-      ctx.fillRect(40, rh - 34, barW * healthT, 8);
+      ctx.fillStyle = `hsla(${barHue}, 90%, 60%, 0.9)`;
+      ctx.fillRect(40, rh - 34, barW * lo, 8);
     },
 
     getHud(): { left: string; center: string; right: string } {
       let center = "";
       if (phase === "playing") {
-        center = `Wave ${wave}/${MAX_WAVES}  ·  Core ${Math.ceil(coreHealth)}  ·  Husks ${enemies.length + spawnQueue.length}`;
+        const foes = enemies.length + spawnQueue.length;
+        if (selectedMode === "grid") {
+          const nodes = bases.map((b) => (b.alive ? Math.ceil(b.hp) : "✕")).join(" · ");
+          center = `Wave ${wave}/${MAX_WAVES}  ·  Nodes ${nodes}  ·  Foes ${foes}`;
+        } else {
+          center = `Wave ${wave}/${MAX_WAVES}  ·  Core ${Math.ceil(bases[0]?.hp ?? 0)}  ·  Foes ${foes}`;
+        }
       } else if (phase === "waveClear") {
         center = `Wave ${wave} cleared — brace for ${wave + 1}`;
       }
@@ -670,29 +900,38 @@ export const createGame = (width: number, height: number): Game => {
     },
 
     getOverlay(helpHeld: boolean): { title: string; body: string; visible: boolean } {
+      const pick =
+        `${selectedMode === "core" ? "▸" : " "} 1 ${MODE_LABEL.core}` +
+        `     ${selectedMode === "grid" ? "▸" : " "} 2 ${MODE_LABEL.grid}\n` +
+        `${MODE_DESCRIPTION[selectedMode]}`;
       if (phase === "title") {
         return {
           title: "ECHO",
-          body: HELP_BODY + "\n\nEnter to start  ·  R to restart  ·  Hold H for help",
+          body:
+            pick +
+            "\n\n" +
+            MODE_HELP[selectedMode] +
+            "\n\n1 / 2 pick mode  ·  Enter to start  ·  R to restart  ·  Hold H for help",
           visible: true
         };
       }
       if (phase === "gameOver") {
+        const what = selectedMode === "grid" ? "A NODE WENT DARK" : "THE DARK TOOK THE CORE";
         return {
-          title: "THE DARK TOOK THE CORE",
+          title: what,
           body:
-            `Held to wave ${wave} of ${MAX_WAVES}\n` +
-            `Husks banished — P1 ${players[0].score} · P2 ${players[1].score}\n` +
+            `${MODE_LABEL[selectedMode]} — held to wave ${wave} of ${MAX_WAVES}\n` +
+            `Foes banished — P1 ${players[0].score} · P2 ${players[1].score}\n` +
             "Press R to try again.",
           visible: true
         };
       }
       if (phase === "victory") {
         return {
-          title: "DAWN — THE CORE HELD",
+          title: "DAWN — THE GRID HELD",
           body:
-            `All ${MAX_WAVES} waves survived.\n` +
-            `Husks banished — P1 ${players[0].score} · P2 ${players[1].score}\n` +
+            `${MODE_LABEL[selectedMode]} — all ${MAX_WAVES} waves survived.\n` +
+            `Foes banished — P1 ${players[0].score} · P2 ${players[1].score}\n` +
             "Press R to play again.",
           visible: true
         };
@@ -700,7 +939,7 @@ export const createGame = (width: number, height: number): Game => {
       if (helpHeld) {
         return {
           title: "HOW TO PLAY",
-          body: HELP_BODY + "\n\nRelease H to resume",
+          body: MODE_HELP[selectedMode] + "\n\nRelease H to resume",
           visible: true
         };
       }

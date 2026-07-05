@@ -74,6 +74,7 @@ export type Game = {
   adjustSetting: (kind: SettingKind, delta: number) => void;
   toggleDisappearJump: () => void;
   toggleFreeMove: () => void;
+  toggleUncappedSpeed: () => void;
   startRound: () => void;
   restartRound: () => void;
   update: (dt: number, p1: PlayerInput, p2: PlayerInput, audio: AudioSystem) => void;
@@ -122,7 +123,8 @@ const reflectBallOffSegment = (
   smash: number,
   spinReady: boolean,
   audio: AudioSystem,
-  particles: ParticleSystem
+  particles: ParticleSystem,
+  speedCap: number | null
 ): boolean => {
   const ab = sub(b, a);
   const abLen = len(ab);
@@ -161,7 +163,9 @@ const reflectBallOffSegment = (
   ball.vel.x *= speed * boost + paddleInfluence.x * 0.01;
   ball.vel.y *= speed * boost + paddleInfluence.y * 0.01;
   ball.vel = normalize(ball.vel);
-  const newSpeed = clamp(speed * boost + 40, 220, 720);
+  const target = speed * boost + 40;
+  const newSpeed =
+    speedCap === null ? Math.max(target, 220) : clamp(target, 220, speedCap);
   ball.vel.x *= newSpeed;
   ball.vel.y *= newSpeed;
   ball.rally += 1;
@@ -463,6 +467,13 @@ export const createGame = (width: number, height: number): Game => {
       settings.freeMove = !settings.freeMove;
     },
 
+    toggleUncappedSpeed(): void {
+      if (phase !== "title") {
+        return;
+      }
+      settings.uncappedSpeed = !settings.uncappedSpeed;
+    },
+
     startRound(): void {
       phase = "playing";
       scoreP1 = 0;
@@ -574,6 +585,7 @@ export const createGame = (width: number, height: number): Game => {
 
       const p1Seg = paddleEndpoints(p1, leftWall, p1.smash * 22);
       const p2Seg = paddleEndpoints(p2, rightWall, p2.smash * 22);
+      const speedCap = settings.uncappedSpeed ? null : 720;
 
       const p1Hit = reflectBallOffSegment(
         ball,
@@ -582,7 +594,8 @@ export const createGame = (width: number, height: number): Game => {
         p1.smash,
         p1.spinReady,
         audio,
-        particles
+        particles,
+        speedCap
       );
       if (p1Hit) {
         p1.spinReady = false;
@@ -594,7 +607,8 @@ export const createGame = (width: number, height: number): Game => {
         p2.smash,
         p2.spinReady,
         audio,
-        particles
+        particles,
+        speedCap
       );
       if (p2Hit) {
         p2.spinReady = false;
@@ -775,6 +789,7 @@ export const createGame = (width: number, height: number): Game => {
         if (settings.freeMove) {
           opts.push(`Move range: ${MOVE_RANGE_LABELS[settings.moveRangeIdx]}   ( , / . )`);
         }
+        opts.push(`Speed cap: ${settings.uncappedSpeed ? "Off — unlimited" : "On"}   (U)`);
 
         return {
           title: "RICOCHET",

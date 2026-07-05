@@ -49,8 +49,8 @@ export const GOAL_COUNT_STEPS = [1, 2, 3];
 export const GOAL_COUNT_LABELS = ["1", "2", "3"];
 
 // goal height as a fraction of the playable arena height
-export const GOAL_SIZE_STEPS = [0.2, 0.32, 0.45, 0.6, 0.78];
-export const GOAL_SIZE_LABELS = ["Tiny", "Small", "Medium", "Large", "Huge"];
+export const GOAL_SIZE_STEPS = [0.1, 0.18, 0.3, 0.45, 0.6, 0.78];
+export const GOAL_SIZE_LABELS = ["Sliver", "Tiny", "Small", "Medium", "Large", "Huge"];
 
 // vertical drift speed of the goal, px/s (0 = static)
 export const GOAL_DRIFT_STEPS = [0, 45, 90, 150];
@@ -81,16 +81,20 @@ export type GoalSettings = {
   disappearJump: boolean;
   moveRangeIdx: number;
   freeMove: boolean;
+  // when true the ball has no upper speed limit — keep landing clean smash hits
+  // and it just keeps accelerating
+  uncappedSpeed: boolean;
 };
 
 export const DEFAULT_GOAL_SETTINGS: GoalSettings = {
   countIdx: 0,
-  sizeIdx: 2,
+  sizeIdx: 3,
   driftIdx: 0,
   disappearIdx: 0,
   disappearJump: true,
   moveRangeIdx: 1,
-  freeMove: false
+  freeMove: false,
+  uncappedSpeed: false
 };
 
 export type SettingKind = "count" | "size" | "drift" | "disappear" | "range";

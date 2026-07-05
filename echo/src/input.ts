@@ -1,3 +1,5 @@
+import type { ModeId } from "./modes";
+
 const BLOCKED_KEYS = new Set([
   "ArrowUp",
   "ArrowDown",
@@ -17,6 +19,7 @@ export type PlayerInput = {
 export type GlobalInput = {
   startPressed: boolean;
   restartPressed: boolean;
+  selectMode: ModeId | null;
 };
 
 const isDown = (set: Set<string>, code: string): boolean => set.has(code);
@@ -56,7 +59,15 @@ export class InputManager {
       allowStart &&
       (this.consumePress("Enter") || this.consumePress("NumpadEnter"));
     const restartPressed = this.consumePress("KeyR");
-    return { startPressed, restartPressed };
+    let selectMode: ModeId | null = null;
+    if (allowStart) {
+      if (this.consumePress("Digit1")) {
+        selectMode = "core";
+      } else if (this.consumePress("Digit2")) {
+        selectMode = "grid";
+      }
+    }
+    return { startPressed, restartPressed, selectMode };
   }
 
   readPlayerOne(): PlayerInput {

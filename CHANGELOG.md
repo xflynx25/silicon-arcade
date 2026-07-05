@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-07-05
+
+- **ECHO**: anti-camp gameplay update — camping both players on the Core and spamming was the dominant strategy, so the whole game now punishes it. Added a title-screen mode picker (`1`/`2`, à la ricochet): **Core** is the classic single central base, **Grid** scatters three nodes in a triangle and foes swarm the nearest — you can't hold them from one spot, and losing even one node ends the run. Reworked **resonance** to reward spreading out: pings closer than a minimum separation no longer connect, and blast radius/damage scale with how far apart the two origins are (plus a short global cooldown so it can't chain every frame). Added three enemy types: **sirens** park at range and drain a base from afar (self-revealed while channeling — you must leave the base and hunt them), **broods** burst into a spray of darters when killed (so point-blank kills at a base backfire), and heavy **brutes** that shrug off single strikes and reward sustained fire/resonance. Standing on a hurt base slowly **repairs** it, personal light shrinks as waves escalate (late waves lean on pings), and the HUD/overlay/render are mode-aware with per-base health rings, threat warnings, and siren drain beams. Generalized the single `coreHealth` scalar into a `bases` array throughout.
+
 ## 2026-07-03 (continued)
 
 - **POLARITY**: fixed the playing field rendering in a tiny top-left corner on HiDPI/Retina displays — screen-shake used `setTransform`, which wiped out the device-pixel-ratio scale applied at startup.
