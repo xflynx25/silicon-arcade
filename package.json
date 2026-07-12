@@ -1,6 +1,7 @@
 {
   "name": "silicon-arcade",
   "private": true,
+  "type": "module",
   "packageManager": "pnpm@9.0.0",
   "scripts": {
     "dev": "vite",

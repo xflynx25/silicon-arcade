@@ -9,7 +9,11 @@
       "Bash(echo \"grep exit \\(1=none found\\): $?\")",
       "Bash(npm view *)",
       "Bash(node -e \"const b=require\\('@vercel/blob'\\); console.log\\('exports:', Object.keys\\(b\\).filter\\(k=>['put','list'].includes\\(k\\)\\)\\)\")",
-      "Bash(echo \"=== EXIT $? ===\")"
+      "Bash(echo \"=== EXIT $? ===\")",
+      "Bash(node -e \"const p=require\\('@vercel/blob/package.json'\\); console.log\\('type:',p.type\\); console.log\\('main:',p.main\\); console.log\\('module:',p.module\\); console.log\\('exports:',JSON.stringify\\(p.exports,null,1\\)\\); console.log\\('engines:',JSON.stringify\\(p.engines\\)\\); console.log\\('deps:',JSON.stringify\\(p.dependencies\\)\\)\")",
+      "Bash(python3 -c \"import json,sys; p=json.load\\(sys.stdin\\); print\\('type:',p.get\\('type'\\)\\); print\\('engines:',p.get\\('engines'\\)\\); print\\('exports:',json.dumps\\(p.get\\('exports'\\),indent=1\\)\\); print\\('deps:',json.dumps\\(p.get\\('dependencies'\\)\\)\\)\")",
+      "Bash(node -e 'const esbuild=require\\('\\\\''esbuild'\\\\''\\); esbuild.build\\({entryPoints:['\\\\''api/leaderboard.ts'\\\\''],bundle:true,format:'\\\\''esm'\\\\'',platform:'\\\\''node'\\\\'',packages:'\\\\''external'\\\\'',outfile:'\\\\''__TRACKED_VAR__/lb.mjs'\\\\''}\\).then\\(\\(\\)=>console.log\\('\\\\''build ok'\\\\''\\)\\).catch\\(e=>{console.error\\(e\\);process.exit\\(1\\)}\\)')",
+      "Bash(node _esmcheck.mjs)"
     ]
   }
 }
