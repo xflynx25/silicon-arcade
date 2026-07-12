@@ -54,7 +54,7 @@ export function leaderboardDevPlugin(): Plugin {
         const board = parsed.searchParams.get("board") ?? "default";
         if (!isValidId(game) || !isValidId(board)) return json(res, 400, { error: "invalid game/board" });
         const b = await read(game, board);
-        return json(res, 200, { entries: b.entries, max: MAX_ENTRIES });
+        return json(res, 200, { enabled: true, entries: b.entries, max: MAX_ENTRIES });
       }
       if (req.method === "POST") {
         const body = await readJsonBody(req);
@@ -68,7 +68,7 @@ export function leaderboardDevPlugin(): Plugin {
         const entry = { name, score, date: new Date().toISOString() };
         const { board: updated, rank } = insertEntry(current, entry);
         await write(updated);
-        return json(res, 200, { entries: updated.entries, rank, qualified: rank !== null, max: MAX_ENTRIES });
+        return json(res, 200, { enabled: true, entries: updated.entries, rank, qualified: rank !== null, max: MAX_ENTRIES });
       }
       return json(res, 405, { error: "method not allowed" });
     } catch {

@@ -19,26 +19,34 @@ pnpm dev:vortex
 pnpm dev:nova
 ```
 
-## Leaderboards (no database)
+## Leaderboards (optional, no database)
 
 High scores persist as **one JSON blob per game+board in Vercel Blob** — no
-Postgres/Neon. Two zero-config serverless functions live at `/api/leaderboard`
-(`GET` lists the top 20, `POST` submits `{ game, board, name, score }`). No auth;
-you just type initials (arcade-style) when you make the board. **TETHER** is wired
-in first (metric: seconds survived, one board per difficulty).
+Postgres/Neon. Two serverless functions live at `/api/leaderboard` (`GET` lists the
+top 20, `POST` submits `{ game, board, name, score }`). No auth; you just type
+initials (arcade-style) when you make the board. **TETHER** is wired in first
+(metric: seconds survived, one board per difficulty).
 
-- **Local dev:** works out of the box. A Vite plugin serves the same endpoint from
-  a gitignored `./.data/leaderboards/*.json` file, so `pnpm dev` /
-  `pnpm dev:tether` need no cloud.
-- **Production setup (one-time):** in the Vercel dashboard, create a **Blob** store
-  and link it to this project (Storage → Blob → Connect). Vercel injects the
-  `BLOB_READ_WRITE_TOKEN` env var automatically; no code change needed. Confirm the
-  project's build still exposes the `/api` directory as functions.
+**The whole feature is optional and self-disabling.** If no leaderboard storage is
+configured, the games run exactly as before with **no leaderboard UI at all** — no
+board, no name prompt, no errors. So a fresh `git clone` + deploy Just Works; you
+only turn leaderboards on when you want them.
+
+- **Local dev — on by default:** a Vite plugin serves the endpoint from a
+  gitignored `./.data/leaderboards/*.json` file, so `pnpm dev` / `pnpm dev:tether`
+  have working leaderboards with zero setup and no cloud account.
+- **Production — off until you link a store:** in the Vercel dashboard, create a
+  **Blob** store and connect it to the project (Storage → Blob → Connect). Vercel
+  then injects `BLOB_READ_WRITE_TOKEN` automatically — no code change. Until that
+  token exists the API reports the leaderboard as disabled and the game hides it.
+  (Confirm your Vercel project still builds the `/api` directory as functions.)
 - **Optional write guard:** set `LEADERBOARD_TOKEN` (server env) and
-  `VITE_LEADERBOARD_TOKEN` (same value, build-time) to require a shared secret
+  `VITE_LEADERBOARD_TOKEN` (same value, build-time) to require a shared-secret
   header on submissions — enough to deter random internet POSTs.
-- **Add another game:** copy `tether/src/leaderboard.ts`, call `getLeaderboard` /
-  `submitScore` with the game's own id, board, and score metric.
+- **Add another game:** copy `tether/src/leaderboard.ts`, and on run-end call
+  `getLeaderboard(game, board)` — only show leaderboard UI when it returns
+  `enabled: true` — then `submitScore(...)` with the game's own id/board/metric.
+  See `tether/src/game.ts` (`beginEndSequence` / `buildEndOverlay`) for the pattern.
 
 ## Games
 

@@ -65,6 +65,11 @@ function safeParse(raw: string): Record<string, unknown> {
 export default async function handler(req: any, res: any): Promise<void> {
   const method: string = req.method ?? "GET";
 
+  // The whole feature is opt-in: with no Blob store linked (no token), report
+  // the leaderboard as disabled so the game hides all leaderboard UI and just
+  // works. Nothing to configure to run the arcade without leaderboards.
+  const enabled = Boolean(process.env.BLOB_READ_WRITE_TOKEN);
+
   if (method === "GET") {
     const game = String(req.query?.game ?? "");
     const board = String(req.query?.board ?? "default");
@@ -72,12 +77,20 @@ export default async function handler(req: any, res: any): Promise<void> {
       json(res, 400, { error: "invalid game/board" });
       return;
     }
+    if (!enabled) {
+      json(res, 200, { enabled: false, entries: [] });
+      return;
+    }
     const b = await readBoard(game, board);
-    json(res, 200, { entries: b.entries, max: MAX_ENTRIES });
+    json(res, 200, { enabled: true, entries: b.entries, max: MAX_ENTRIES });
     return;
   }
 
   if (method === "POST") {
+    if (!enabled) {
+      json(res, 200, { enabled: false, ok: false });
+      return;
+    }
     const secret = process.env.LEADERBOARD_TOKEN;
     if (secret && req.headers?.["x-arcade-token"] !== secret) {
       json(res, 401, { error: "unauthorized" });
@@ -100,8 +113,13 @@ export default async function handler(req: any, res: any): Promise<void> {
     const current = await readBoard(game, board);
     const entry = { name, score, date: new Date().toISOString() };
     const { board: updated, rank } = insertEntry(current, entry);
-    await writeBoard(updated);
-    json(res, 200, { entries: updated.entries, rank, qualified: rank !== null, max: MAX_ENTRIES });
+    try {
+      await writeBoard(updated);
+    } catch {
+      json(res, 500, { error: "write failed" });
+      return;
+    }
+    json(res, 200, { enabled: true, entries: updated.entries, rank, qualified: rank !== null, max: MAX_ENTRIES });
     return;
   }
 

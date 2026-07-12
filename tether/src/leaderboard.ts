@@ -8,6 +8,9 @@
 
 export type LeaderboardEntry = { name: string; score: number; date: string };
 export type SubmitResult = { entries: LeaderboardEntry[]; rank: number | null; qualified: boolean };
+// `enabled` is false when no leaderboard is configured (no Blob store in prod)
+// or the endpoint is unreachable — the game then hides all leaderboard UI.
+export type LeaderboardState = { enabled: boolean; entries: LeaderboardEntry[] };
 
 export const MAX_ENTRIES = 20;
 
@@ -15,17 +18,18 @@ const ENDPOINT = "/api/leaderboard";
 // Optional shared secret, baked in at build time (set VITE_LEADERBOARD_TOKEN).
 const TOKEN = (import.meta as any).env?.VITE_LEADERBOARD_TOKEN as string | undefined;
 
-export async function getLeaderboard(game: string, board: string): Promise<LeaderboardEntry[]> {
+export async function getLeaderboard(game: string, board: string): Promise<LeaderboardState> {
   try {
     const res = await fetch(
       `${ENDPOINT}?game=${encodeURIComponent(game)}&board=${encodeURIComponent(board)}`,
       { cache: "no-store" }
     );
-    if (!res.ok) return [];
+    if (!res.ok) return { enabled: false, entries: [] };
     const data = await res.json();
-    return Array.isArray(data?.entries) ? (data.entries as LeaderboardEntry[]) : [];
+    if (data?.enabled === false) return { enabled: false, entries: [] };
+    return { enabled: true, entries: Array.isArray(data?.entries) ? (data.entries as LeaderboardEntry[]) : [] };
   } catch {
-    return [];
+    return { enabled: false, entries: [] };
   }
 }
 

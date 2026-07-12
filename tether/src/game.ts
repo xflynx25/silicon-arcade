@@ -103,7 +103,9 @@ export class TetherGame {
   private endScore = 0;
   private endBoardKey: Difficulty = "normal";
   private board: LeaderboardEntry[] = [];
-  private boardLoading = false;
+  // True only once the endpoint confirms a leaderboard is configured; when
+  // false the end screen shows no leaderboard UI at all.
+  private leaderboardActive = false;
   private nameEntry: NameEntry | null = null;
   private submitState: SubmitState = "idle";
   private justSubmitted: { name: string; score: number } | null = null;
@@ -124,6 +126,7 @@ export class TetherGame {
   private resetRound(): void {
     this.mode = "playing";
     this.endHandled = false;
+    this.leaderboardActive = false;
     this.nameEntry = null;
     this.submitState = "idle";
     this.justSubmitted = null;
@@ -241,15 +244,17 @@ export class TetherGame {
     this.submitState = "idle";
     this.justSubmitted = null;
     this.nameEntry = null;
+    this.leaderboardActive = false;
     this.board = [];
-    this.boardLoading = true;
     const board = this.difficulty;
-    getLeaderboard(LEADERBOARD_GAME, board).then((entries) => {
+    getLeaderboard(LEADERBOARD_GAME, board).then((state) => {
       // Drop the result if the player already restarted or switched difficulty.
       if (this.mode !== "ended" || this.endBoardKey !== board) return;
-      this.board = entries;
-      this.boardLoading = false;
-      if (qualifies(entries, this.endScore)) {
+      // No leaderboard configured (or unreachable): show none of its UI.
+      if (!state.enabled) return;
+      this.leaderboardActive = true;
+      this.board = state.entries;
+      if (qualifies(state.entries, this.endScore)) {
         this.nameEntry = { active: true, chars: [] };
       }
     });
@@ -321,9 +326,14 @@ export class TetherGame {
     const header =
       `Survived ${this.endScore.toFixed(1)}s on ${diffLabel}\n` +
       `P1 Light ${this.players[0].score} | P2 Light ${this.players[1].score}`;
-    if (this.boardLoading) {
-      return { title: "Run Complete", body: `${header}\n\nLoading leaderboard…` };
+    const footer = "1/2/3 change difficulty  ·  Enter or R to play again";
+
+    // No leaderboard configured/reachable (or still loading): the plain, original
+    // Run Complete screen — the game is fully playable with zero leaderboard UI.
+    if (!this.leaderboardActive) {
+      return { title: "Run Complete", body: `${header}\n\n${footer}` };
     }
+
     if (this.nameEntry?.active) {
       const typed = this.nameEntry.chars.join("");
       const cursor = this.nameEntry.chars.length < NAME_MAX ? "_" : "";
@@ -334,6 +344,7 @@ export class TetherGame {
           `Type A–Z / 0–9  ·  Backspace  ·  Enter to save`
       };
     }
+
     const status =
       this.submitState === "submitting"
         ? "\nSaving…"
@@ -342,9 +353,7 @@ export class TetherGame {
           : "";
     return {
       title: "Run Complete",
-      body:
-        `${header}${status}\n\n${this.formatBoard(diffLabel)}\n\n` +
-        `1/2/3 change difficulty  ·  Enter or R to play again`
+      body: `${header}${status}\n\n${this.formatBoard(diffLabel)}\n\n${footer}`
     };
   }
 
