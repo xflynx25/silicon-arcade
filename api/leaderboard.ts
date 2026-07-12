@@ -8,9 +8,11 @@
 // "a text file in the cloud". For a small friends leaderboard the read-modify-
 // write race on simultaneous submits is acceptable.
 //
-// Requires a Blob store connected to the project (env BLOB_READ_WRITE_TOKEN,
-// which Vercel injects automatically once the store is linked). Optionally set
-// LEADERBOARD_TOKEN to require a shared secret header on writes.
+// Requires a Blob store connected to the project. Vercel authenticates the
+// runtime automatically once the store is linked: newer stores use OIDC and
+// inject BLOB_STORE_ID (the SDK signs requests with VERCEL_OIDC_TOKEN); older
+// stores inject a long-lived BLOB_READ_WRITE_TOKEN. Either presence enables the
+// feature. Optionally set LEADERBOARD_TOKEN to require a shared secret on writes.
 
 import { list, put } from "@vercel/blob";
 import {
@@ -65,10 +67,12 @@ function safeParse(raw: string): Record<string, unknown> {
 export default async function handler(req: any, res: any): Promise<void> {
   const method: string = req.method ?? "GET";
 
-  // The whole feature is opt-in: with no Blob store linked (no token), report
-  // the leaderboard as disabled so the game hides all leaderboard UI and just
-  // works. Nothing to configure to run the arcade without leaderboards.
-  const enabled = Boolean(process.env.BLOB_READ_WRITE_TOKEN);
+  // The whole feature is opt-in: with no Blob store linked, report the
+  // leaderboard as disabled so the game hides all leaderboard UI and just works.
+  // Nothing to configure to run the arcade without leaderboards. A linked store
+  // shows up as either BLOB_STORE_ID (OIDC, the current default) or a
+  // BLOB_READ_WRITE_TOKEN (legacy long-lived token) — accept either.
+  const enabled = Boolean(process.env.BLOB_STORE_ID || process.env.BLOB_READ_WRITE_TOKEN);
 
   if (method === "GET") {
     const game = String(req.query?.game ?? "");

@@ -6,7 +6,10 @@
       "Read(//Applications/Google Chrome.app/**)",
       "Bash(npx --no-install playwright --version)",
       "Bash(echo \"ROOT TSC EXIT: $?\")",
-      "Bash(echo \"grep exit \\(1=none found\\): $?\")"
+      "Bash(echo \"grep exit \\(1=none found\\): $?\")",
+      "Bash(npm view *)",
+      "Bash(node -e \"const b=require\\('@vercel/blob'\\); console.log\\('exports:', Object.keys\\(b\\).filter\\(k=>['put','list'].includes\\(k\\)\\)\\)\")",
+      "Bash(echo \"=== EXIT $? ===\")"
     ]
   }
 }
