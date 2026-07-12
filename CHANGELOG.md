@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-07-06
+
+- **LEADERBOARDS**: added old-arcade high-score leaderboards with no database. Scores persist as **one JSON blob per game+board in Vercel Blob** (no Neon/Postgres), served through two tiny zero-config serverless functions at `/api/leaderboard` (`GET` to list top 20, `POST` to submit `{ game, board, name, score }`). No auth — just type your initials (A–Z / 0–9, arcade-style) when you make the board. A Vite dev plugin (`scripts/leaderboard-dev-plugin.ts`) serves the identical contract from a local `.data/` file so `pnpm dev` works with no cloud. Shared pure logic lives in `api/_leaderboard-core.ts` (validation, sort, trim) so dev and prod behave the same. **TETHER** is wired first: metric is seconds survived, one board per difficulty (easy/normal/hard); the Run Complete overlay now shows the board and prompts for initials on a qualifying run. Other games opt in by importing the same client helper. Optional `LEADERBOARD_TOKEN` shared secret guards writes. Requires a Blob store linked to the Vercel project (see README).
+
 ## 2026-07-05
 
 - **NOVA**: sharpened the three mode identities so each mode has a distinct verb — **Fight**, **Survive**, **Collect**. **Duel** now awards rounds on **Flare-strike** hits (not just ram/boundary), lowered ram kill thresholds (280+ speed, 1.15× ratio), perfect Shield parries **stagger** the attacker, and the playable band is slightly wider. **Flares** adds corona creep each wave, rotating bolt patterns (burst / spiral / crossfire), telegraphed aimed shots, slow homing bolts from wave 3, and **three shared lives** with respawn. **Rings** adds combo chains (3s window, wall bounce resets), linked gold pairs (+6 when both comets collect within 4s), risk rings near the corona (5 pts), and Shield **magnet pulse** on nearby rings. Extracted mode copy to `nova/src/modes.ts` with per-mode help text; updated title menu, HUD (lives, combo), and README.

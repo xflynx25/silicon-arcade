@@ -1,4 +1,5 @@
 import { defineConfig } from "vite";
+import { leaderboardDevPlugin } from "./scripts/leaderboard-dev-plugin";
 
 // Arcade launcher dev server.
 //
@@ -9,6 +10,9 @@ import { defineConfig } from "vite";
 // so every launch is a clean start. Games still run standalone via
 // `pnpm dev:<game>` because their index.html now uses a relative script src.
 export default defineConfig({
+  // Serves /api/leaderboard from a local .data/ file so the leaderboard works
+  // in `pnpm dev` exactly as it does on Vercel (Blob) in production.
+  plugins: [leaderboardDevPlugin()],
   server: {
     open: false
   }

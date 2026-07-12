@@ -13,7 +13,11 @@
     "dev:nova": "pnpm --filter nova dev",
     "build": "pnpm -r build && tsc --noEmit && vite build && node scripts/assemble-dist.mjs"
   },
+  "dependencies": {
+    "@vercel/blob": "^0.27.0"
+  },
   "devDependencies": {
+    "@types/node": "^20.14.0",
     "typescript": "^5.5.4",
     "vite": "^5.3.5"
   }

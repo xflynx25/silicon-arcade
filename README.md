@@ -19,6 +19,27 @@ pnpm dev:vortex
 pnpm dev:nova
 ```
 
+## Leaderboards (no database)
+
+High scores persist as **one JSON blob per game+board in Vercel Blob** — no
+Postgres/Neon. Two zero-config serverless functions live at `/api/leaderboard`
+(`GET` lists the top 20, `POST` submits `{ game, board, name, score }`). No auth;
+you just type initials (arcade-style) when you make the board. **TETHER** is wired
+in first (metric: seconds survived, one board per difficulty).
+
+- **Local dev:** works out of the box. A Vite plugin serves the same endpoint from
+  a gitignored `./.data/leaderboards/*.json` file, so `pnpm dev` /
+  `pnpm dev:tether` need no cloud.
+- **Production setup (one-time):** in the Vercel dashboard, create a **Blob** store
+  and link it to this project (Storage → Blob → Connect). Vercel injects the
+  `BLOB_READ_WRITE_TOKEN` env var automatically; no code change needed. Confirm the
+  project's build still exposes the `/api` directory as functions.
+- **Optional write guard:** set `LEADERBOARD_TOKEN` (server env) and
+  `VITE_LEADERBOARD_TOKEN` (same value, build-time) to require a shared secret
+  header on submissions — enough to deter random internet POSTs.
+- **Add another game:** copy `tether/src/leaderboard.ts`, call `getLeaderboard` /
+  `submitScore` with the game's own id, board, and score metric.
+
 ## Games
 
 | Game | Style | Summary |

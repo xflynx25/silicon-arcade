@@ -3,6 +3,19 @@ import { InputManager } from "./input";
 import { ParticleSystem } from "./particles";
 import { Hud } from "./ui";
 import { clamp, dist, len, normalize, sub, vec, type Vec } from "./vec";
+import {
+  getLeaderboard,
+  qualifies,
+  submitScore,
+  type LeaderboardEntry
+} from "./leaderboard";
+
+// TETHER leaderboard metric = seconds survived, one board per difficulty.
+const LEADERBOARD_GAME = "tether";
+const NAME_MAX = 8;
+
+type NameEntry = { active: boolean; chars: string[] };
+type SubmitState = "idle" | "submitting" | "done" | "error";
 
 const HELP_BODY =
   "Co-op — two spirits bound by an elastic tether.\n" +
@@ -85,6 +98,16 @@ export class TetherGame {
   private readonly hazards: Hazard[] = [];
   private readonly particles = new ParticleSystem();
 
+  // Leaderboard / end-of-run state.
+  private endHandled = false;
+  private endScore = 0;
+  private endBoardKey: Difficulty = "normal";
+  private board: LeaderboardEntry[] = [];
+  private boardLoading = false;
+  private nameEntry: NameEntry | null = null;
+  private submitState: SubmitState = "idle";
+  private justSubmitted: { name: string; score: number } | null = null;
+
   constructor(
     private readonly canvas: HTMLCanvasElement,
     private readonly ctx: CanvasRenderingContext2D,
@@ -100,6 +123,10 @@ export class TetherGame {
 
   private resetRound(): void {
     this.mode = "playing";
+    this.endHandled = false;
+    this.nameEntry = null;
+    this.submitState = "idle";
+    this.justSubmitted = null;
     this.time = 0;
     this.elapsed = 0;
     this.wave = 1;
@@ -118,33 +145,30 @@ export class TetherGame {
   }
 
   update(dt: number): void {
+    // Kick off the end-of-run leaderboard flow exactly once.
+    if (this.mode === "ended" && !this.endHandled) {
+      this.beginEndSequence();
+    }
+
+    // While typing initials, letters/digits/Enter belong to name entry, so we
+    // must NOT let consumeGlobal() eat Enter/R first.
+    if (this.mode !== "playing" && this.nameEntry?.active) {
+      this.updateNameEntry();
+      this.applyMenuHud();
+      this.input.endFrame();
+      return;
+    }
+
     const global = this.input.consumeGlobal();
     if (this.mode !== "playing") {
       if (this.input.consumePress("Digit1")) this.difficulty = "easy";
       if (this.input.consumePress("Digit2")) this.difficulty = "normal";
       if (this.input.consumePress("Digit3")) this.difficulty = "hard";
-    }
-    if (this.mode !== "playing" && (global.startPressed || global.restartPressed)) {
-      this.audio.initOnGesture();
-      this.resetRound();
-    }
-
-    if (this.mode !== "playing") {
-      const diffLabel = DIFFICULTIES[this.difficulty].label;
-      this.hud.setHud({
-        left: "TETHER",
-        center: `Difficulty: ${diffLabel}`,
-        right: "WASD + Arrows"
-      });
-      this.hud.setOverlay({
-        visible: true,
-        title: this.mode === "ended" ? "Run Complete" : "TETHER",
-        body:
-          this.mode === "ended"
-            ? `Survived ${this.time.toFixed(1)}s on ${diffLabel}\nP1 Light ${this.players[0].score} | P2 Light ${this.players[1].score}\n1/2/3 change difficulty  ·  Enter or R to play again`
-            : HELP_BODY +
-              `\n\nDifficulty: ${diffLabel}  (press 1 Easy · 2 Normal · 3 Hard)\nEnter to launch  ·  R to restart  ·  Hold H for help`
-      });
+      if (global.startPressed || global.restartPressed) {
+        this.audio.initOnGesture();
+        this.resetRound();
+      }
+      this.applyMenuHud();
       this.input.endFrame();
       return;
     }
@@ -206,6 +230,141 @@ export class TetherGame {
       this.hud.setOverlay({ visible: false, title: "", body: "" });
     }
     this.input.endFrame();
+  }
+
+  // --- Leaderboard / end-of-run ------------------------------------------
+
+  private beginEndSequence(): void {
+    this.endHandled = true;
+    this.endScore = this.time;
+    this.endBoardKey = this.difficulty;
+    this.submitState = "idle";
+    this.justSubmitted = null;
+    this.nameEntry = null;
+    this.board = [];
+    this.boardLoading = true;
+    const board = this.difficulty;
+    getLeaderboard(LEADERBOARD_GAME, board).then((entries) => {
+      // Drop the result if the player already restarted or switched difficulty.
+      if (this.mode !== "ended" || this.endBoardKey !== board) return;
+      this.board = entries;
+      this.boardLoading = false;
+      if (qualifies(entries, this.endScore)) {
+        this.nameEntry = { active: true, chars: [] };
+      }
+    });
+  }
+
+  private updateNameEntry(): void {
+    const ne = this.nameEntry;
+    if (!ne) return;
+    if (this.input.consumePress("Enter") || this.input.consumePress("NumpadEnter")) {
+      if (ne.chars.length >= 1) this.confirmName();
+      return;
+    }
+    if (this.input.consumePress("Backspace")) {
+      ne.chars.pop();
+      return;
+    }
+    if (ne.chars.length >= NAME_MAX) return;
+    for (let c = 65; c <= 90; c += 1) {
+      if (this.input.consumePress(`Key${String.fromCharCode(c)}`)) {
+        ne.chars.push(String.fromCharCode(c));
+        return;
+      }
+    }
+    for (let d = 0; d <= 9; d += 1) {
+      if (this.input.consumePress(`Digit${d}`) || this.input.consumePress(`Numpad${d}`)) {
+        ne.chars.push(String(d));
+        return;
+      }
+    }
+  }
+
+  private confirmName(): void {
+    const ne = this.nameEntry;
+    if (!ne) return;
+    const name = ne.chars.join("");
+    this.nameEntry = null;
+    this.submitState = "submitting";
+    this.justSubmitted = { name, score: this.endScore };
+    this.audio.collect();
+    const board = this.endBoardKey;
+    submitScore(LEADERBOARD_GAME, board, name, this.endScore).then((res) => {
+      if (this.endBoardKey !== board) return;
+      if (res) {
+        this.board = res.entries;
+        this.submitState = "done";
+      } else {
+        this.submitState = "error";
+      }
+    });
+  }
+
+  private applyMenuHud(): void {
+    const diffLabel = DIFFICULTIES[this.difficulty].label;
+    this.hud.setHud({ left: "TETHER", center: `Difficulty: ${diffLabel}`, right: "WASD + Arrows" });
+    if (this.mode === "ended") {
+      this.hud.setOverlay({ visible: true, ...this.buildEndOverlay(diffLabel) });
+    } else {
+      this.hud.setOverlay({
+        visible: true,
+        title: "TETHER",
+        body:
+          HELP_BODY +
+          `\n\nDifficulty: ${diffLabel}  (press 1 Easy · 2 Normal · 3 Hard)\nEnter to launch  ·  R to restart  ·  Hold H for help`
+      });
+    }
+  }
+
+  private buildEndOverlay(diffLabel: string): { title: string; body: string } {
+    const header =
+      `Survived ${this.endScore.toFixed(1)}s on ${diffLabel}\n` +
+      `P1 Light ${this.players[0].score} | P2 Light ${this.players[1].score}`;
+    if (this.boardLoading) {
+      return { title: "Run Complete", body: `${header}\n\nLoading leaderboard…` };
+    }
+    if (this.nameEntry?.active) {
+      const typed = this.nameEntry.chars.join("");
+      const cursor = this.nameEntry.chars.length < NAME_MAX ? "_" : "";
+      return {
+        title: "NEW HIGH SCORE!",
+        body:
+          `${header}\n\nEnter your initials:\n\n    ${typed}${cursor}\n\n` +
+          `Type A–Z / 0–9  ·  Backspace  ·  Enter to save`
+      };
+    }
+    const status =
+      this.submitState === "submitting"
+        ? "\nSaving…"
+        : this.submitState === "error"
+          ? "\n(couldn't reach leaderboard — score not saved)"
+          : "";
+    return {
+      title: "Run Complete",
+      body:
+        `${header}${status}\n\n${this.formatBoard(diffLabel)}\n\n` +
+        `1/2/3 change difficulty  ·  Enter or R to play again`
+    };
+  }
+
+  private formatBoard(diffLabel: string): string {
+    const heading = `— TETHER · ${diffLabel} —`;
+    if (this.board.length === 0) {
+      return `${heading}\n(no scores yet — be the first!)`;
+    }
+    const rows = this.board.slice(0, 10).map((e, i) => {
+      const mine =
+        this.justSubmitted !== null &&
+        e.name === this.justSubmitted.name &&
+        Math.abs(e.score - this.justSubmitted.score) < 0.05;
+      const marker = mine ? "▶ " : "  ";
+      const rank = String(i + 1).padStart(2, " ");
+      const name = e.name.padEnd(NAME_MAX, " ");
+      const score = `${e.score.toFixed(1)}s`.padStart(7, " ");
+      return `${marker}${rank}. ${name} ${score}`;
+    });
+    return `${heading}\n${rows.join("\n")}`;
   }
 
   private applyTether(dt: number): void {
