@@ -1,7 +1,12 @@
 {
   "permissions": {
     "allow": [
-      "Bash(pkill -f \"vite\")"
+      "Bash(pkill -f \"vite\")",
+      "Bash(pnpm --filter lattice build)",
+      "Read(//Applications/Google Chrome.app/**)",
+      "Bash(npx --no-install playwright --version)",
+      "Bash(echo \"ROOT TSC EXIT: $?\")",
+      "Bash(echo \"grep exit \\(1=none found\\): $?\")"
     ]
   }
 }

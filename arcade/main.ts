@@ -68,6 +68,24 @@ const GAMES: Game[] = [
       "Comets ride a star's gravity — slingshot for speed, then ram to shatter your rival.",
     accent: "#ff8a3d",
     glyph: `<circle cx="28" cy="28" r="5"/><path d="M28 6v10M28 40v10M6 28h10M40 28h10M13 13l7 7M43 43l-7-7M43 13l-7 7M13 43l7-7"/>`
+  },
+  {
+    id: "lattice",
+    name: "LATTICE",
+    tag: "Territory duel",
+    summary:
+      "Ride the grid leaving a light trail — loop back to claim the ground you enclose, cut your rival to reset them.",
+    accent: "#4dffb0",
+    glyph: `<path d="M10 10h22v22H10z"/><path d="M32 24h14v22H24V32"/><path d="M10 10l14 14"/>`
+  },
+  {
+    id: "salvo",
+    name: "SALVO",
+    tag: "Tank duel",
+    summary:
+      "Steer armored tanks around cover and fire ricocheting shells — bank shots off the walls to catch your rival.",
+    accent: "#ffb638",
+    glyph: `<rect x="12" y="26" width="24" height="16" rx="3"/><path d="M24 34h20"/><circle cx="47" cy="34" r="3"/><path d="M14 46h20"/>`
   }
 ];
 

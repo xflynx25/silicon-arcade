@@ -1,6 +1,6 @@
 # Silicon Arcade — Local 2-Player Games
 
-Six local 2-player keyboard games in one workspace.
+Eight local 2-player keyboard games in one workspace.
 
 ## Install
 
@@ -17,6 +17,8 @@ pnpm dev:ricochet
 pnpm dev:echo
 pnpm dev:vortex
 pnpm dev:nova
+pnpm dev:lattice
+pnpm dev:salvo
 ```
 
 ## Leaderboards (optional, no database)
@@ -58,6 +60,8 @@ only turn leaderboards on when you want them.
 | **ECHO** | Co-op survival | Defend bases in the dark — ping to reveal foes, strike to destroy them, spread apart to resonate; two modes (Core / Grid) |
 | **VORTEX** | Sumo knockout | Charge-dash ships in a shrinking arena — knock your opponent out |
 | **NOVA** | Orbital duel / co-op | Comets orbit a star's gravity — slingshot for speed; ram to shatter your rival, or team up across three modes |
+| **LATTICE** | Territory duel | Ride the grid leaving a light trail — loop back into your land to claim what you enclosed; cut your rival's line to send them home |
+| **SALVO** | Tank duel | Steer armored tanks around cover and fire ricocheting shells — bank shots off the walls to catch your rival; two arenas (Open / Maze) |
 
 ## Controls
 
@@ -95,6 +99,15 @@ Shared across all games:
 - Foes: **drifters** crawl, **darters** are fast, **husks** and **brutes** are tanky, **broods** split into darters when killed, and **sirens** stop at range and drain your base from afar — camping won't save it, you have to go out and kill them
 - Personal light shrinks as waves escalate, so late waves lean harder on your pings
 
+### LATTICE specifics
+
+- A light-cycle land grab on a shared grid — you always own a patch of territory
+- Steer out of your land (`WASD` / arrows, snake-style turns) and you trail a glowing line behind you
+- **Loop the line back into your own territory** to capture everything you enclosed — including cells stolen from your rival
+- **Cut across the rival's live line** (or make them hit a wall / their own line) to send them home: their whole in-progress claim is erased and they respawn as a tiny block
+- Hold `Left Shift` / `Right Shift` to **boost** (drains a meter, regenerates when off)
+- On title screen: `1` **Territory** (90s, most ground wins) · `2` **Conquest** (first to hold 60% of the grid), then `Enter` to start; `R` for an instant rematch
+
 ### VORTEX specifics
 
 - Hold `Shift` / `RShift` to charge dash, release to lunge
@@ -111,3 +124,13 @@ Shared across all games:
 - **Duel** — competitive, best of 5; **Flare-strike** or a fast ram (280+ speed, clearly faster) wins the round; Shield parries and perfect blocks stagger. Wider safe band than co-op — boundaries still kill
 - **Flares** — co-op survival; corona **creeps inward** each wave, bolt patterns rotate (burst / spiral / crossfire), homing bolts from wave 3, telegraphed aimed shots. **Three shared lives** — respawn on hit. Tracks best survival time
 - **Rings** — co-op collection; chain rings within 3s for combo bonus, **linked gold** needs both comets within 4s (+6), **risk rings** hug the corona (5 pts). Soft walls only — bounce resets combo
+
+### SALVO specifics
+
+- P1: `W`/`S` drive forward/back, `A`/`D` rotate; P2: `↑`/`↓` drive, `←`/`→` rotate
+- `Left Shift` / `Right Shift` **fire** — up to two shells in flight at once, short cooldown between shots
+- Shells **ricochet** off the arena walls and cover (up to six bounces) before they fade — bank shots around blind corners
+- Your **own shell can kill you** after a brief muzzle grace, so wild ricochets are a real risk
+- Brief spawn invulnerability (a flicker) each round so nobody eats a point-blank shot on the reset
+- On title screen: `1` **Open** (wide sightlines, light cover) · `2` **Maze** (interior walls, more bank shots), then `Enter` to start
+- First to **3 rounds** wins; `R` for an instant rematch

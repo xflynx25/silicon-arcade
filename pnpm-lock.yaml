@@ -31,6 +31,15 @@ importers:
         specifier: ^5.3.5
         version: 5.4.21(@types/node@20.19.43)
 
+  lattice:
+    devDependencies:
+      typescript:
+        specifier: ^5.5.4
+        version: 5.9.3
+      vite:
+        specifier: ^5.3.5
+        version: 5.4.21(@types/node@20.19.43)
+
   nova:
     devDependencies:
       typescript:
@@ -50,6 +59,15 @@ importers:
         version: 5.4.21(@types/node@20.19.43)
 
   ricochet:
+    devDependencies:
+      typescript:
+        specifier: ^5.5.4
+        version: 5.9.3
+      vite:
+        specifier: ^5.3.5
+        version: 5.4.21(@types/node@20.19.43)
+
+  salvo:
     devDependencies:
       typescript:
         specifier: ^5.5.4
