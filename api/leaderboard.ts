@@ -25,7 +25,7 @@ import {
   normalizeBoard,
   sanitizeName,
   type LeaderboardBoard
-} from "./_leaderboard-core";
+} from "./_leaderboard-core.js";
 
 async function readBoard(game: string, board: string): Promise<LeaderboardBoard> {
   const key = blobKey(game, board);
