@@ -27,7 +27,8 @@
       "Bash(curl -s -i \"https://silicon-arcade-gold.vercel.app/api/leaderboard?game=tether&board=normal\")",
       "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" \"https://silicon-arcade-gold.vercel.app/api/leaderboard\")",
       "Bash(curl -s \"https://silicon-arcade-gold.vercel.app/api/leaderboard?game=!!!&board=x\")",
-      "Bash(curl -s -X POST \"https://silicon-arcade-gold.vercel.app/api/leaderboard\" -H \"Content-Type: application/json\" -d '{}')"
+      "Bash(curl -s -X POST \"https://silicon-arcade-gold.vercel.app/api/leaderboard\" -H \"Content-Type: application/json\" -d '{}')",
+      "Bash(git commit -m ' *)"
     ]
   }
 }
