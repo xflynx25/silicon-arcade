@@ -26,8 +26,9 @@ pnpm dev:salvo
 High scores persist as **one JSON blob per game+board in Vercel Blob** — no
 Postgres/Neon. Two serverless functions live at `/api/leaderboard` (`GET` lists the
 top 20, `POST` submits `{ game, board, name, score }`). No auth; you just type
-initials (arcade-style) when you make the board. **TETHER** is wired in first
-(metric: seconds survived, one board per difficulty).
+initials (arcade-style) when you make the board. **TETHER** was wired first
+(metric: seconds survived, one board per difficulty); **CIPHER**, **NOVA**
+(Flares/Rings), **RICOCHET** Rally, and **ECHO** (Core/Grid) are also wired.
 
 **The whole feature is optional and self-disabling.** If no leaderboard storage is
 configured, the games run exactly as before with **no leaderboard UI at all** — no
@@ -45,10 +46,12 @@ only turn leaderboards on when you want them.
 - **Optional write guard:** set `LEADERBOARD_TOKEN` (server env) and
   `VITE_LEADERBOARD_TOKEN` (same value, build-time) to require a shared-secret
   header on submissions — enough to deter random internet POSTs.
-- **Add another game:** copy `tether/src/leaderboard.ts`, and on run-end call
+- **Add another game:** add `@arcade/leaderboard` as a workspace dependency, import
+  `getLeaderboard` / `submitScore` / `qualifies` from it, and on run-end call
   `getLeaderboard(game, board)` — only show leaderboard UI when it returns
   `enabled: true` — then `submitScore(...)` with the game's own id/board/metric.
-  See `tether/src/game.ts` (`beginEndSequence` / `buildEndOverlay`) for the pattern.
+  Register the game in `arcade/main.ts` `LEADERBOARD_GAMES`. See `tether/src/game.ts`
+  (`beginEndSequence` / `buildEndOverlay`) for the pattern.
 
 ## Games
 

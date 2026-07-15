@@ -2,6 +2,8 @@
 
 ## 2026-07-15
 
+- **LEADERBOARDS**: expanded beyond TETHER to five more game modes. Extracted the shared client into `@arcade/leaderboard` (`shared/`) so games import one workspace package instead of copying `leaderboard.ts`. Wired **CIPHER** (rounds completed), **NOVA** Flares (survival time) and Rings (60s score), **RICOCHET** Rally (rally count — pauses auto-restart for initials/board), and **ECHO** Core/Grid (waves survived). Each game gets the dev leaderboard plugin on its Vite config. The arcade launcher Leaderboards overlay now lists all six games with per-board tabs.
+
 - **SALVO**: fixed shells vanishing mid-flight even on the Infinite ricochet preset — a hidden `shellLife` fuse (4–9s) was killing shells regardless of bounce count. Presets now expire shells only on bounce cap or tank hit. Also fixed obstacle slides counting a bounce every frame when a shell grazed a wall edge.
 - **SALVO**: added ammunition controls on the title screen — concurrent shells (`4`), fire rate (`5`), and per-round ammo pool (`6`, one press = one shot even with triple-shot). **Variety** mode (`7`, default) re-rolls unlocked settings each round; `Shift+digit` locks individual rows so you can e.g. keep powerups on while maps and ricochet rules shuffle. HUD shows the active round config and remaining ammo when the pool is finite.
 

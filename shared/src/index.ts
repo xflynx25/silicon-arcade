@@ -2,9 +2,6 @@
 // same-origin whether the game runs inside the arcade iframe (prod: Vercel Blob;
 // dev: local .data file). Every call fails soft — a dead endpoint must never
 // break the game, only hide the leaderboard.
-//
-// Self-contained on purpose: other games can copy this file and call it with
-// their own game id / board / metric.
 
 export type LeaderboardEntry = { name: string; score: number; date: string };
 export type SubmitResult = { entries: LeaderboardEntry[]; rank: number | null; qualified: boolean };

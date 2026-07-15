@@ -1,4 +1,5 @@
 import type { PlayerInput } from "./input";
+import type { InputManager } from "./input";
 import { ParticleSystem } from "./particles";
 import { AudioSystem } from "./audio";
 import {
@@ -24,6 +25,19 @@ import {
   type SettingKind
 } from "./modes";
 import { clamp, dist, len, normalize, sub, vec, type Vec } from "./vec";
+import {
+  getLeaderboard,
+  qualifies,
+  submitScore,
+  type LeaderboardEntry
+} from "@arcade/leaderboard";
+
+const LEADERBOARD_GAME = "ricochet";
+const LEADERBOARD_BOARD = "rally";
+const NAME_MAX = 8;
+
+type NameEntry = { active: boolean; chars: string[] };
+type SubmitState = "idle" | "submitting" | "done" | "error";
 
 export type GamePhase = "title" | "playing" | "roundEnd" | "matchEnd";
 
@@ -77,7 +91,7 @@ export type Game = {
   toggleUncappedSpeed: () => void;
   startRound: () => void;
   restartRound: () => void;
-  update: (dt: number, p1: PlayerInput, p2: PlayerInput, audio: AudioSystem) => void;
+  update: (dt: number, p1: PlayerInput, p2: PlayerInput, input: InputManager, audio: AudioSystem) => void;
   render: (ctx: CanvasRenderingContext2D, w: number, h: number, alpha: number) => void;
   applyShake: (ctx: CanvasRenderingContext2D) => void;
   getHud: () => { left: string; center: string; right: string };
@@ -204,6 +218,117 @@ export const createGame = (width: number, height: number): Game => {
   let goals: Goal[] = [];
   const particles = new ParticleSystem();
   const trails: TrailPoint[] = [];
+
+  // Leaderboard state (rally mode ball exit)
+  let endScore = 0;
+  let rallyPaused = false;
+  let leaderboardActive = false;
+  let nameEntry: NameEntry | null = null;
+  let board: LeaderboardEntry[] = [];
+  let submitState: SubmitState = "idle";
+  let justSubmitted: { name: string; score: number } | null = null;
+
+  const beginEndSequence = (score: number): void => {
+    endScore = score;
+    submitState = "idle";
+    justSubmitted = null;
+    nameEntry = null;
+    leaderboardActive = false;
+    board = [];
+    getLeaderboard(LEADERBOARD_GAME, LEADERBOARD_BOARD).then((state) => {
+      if (currentMode !== "rally" || phase !== "roundEnd") return;
+      if (!state.enabled) {
+        rallyPaused = false;
+        return;
+      }
+      rallyPaused = true;
+      leaderboardActive = true;
+      board = state.entries;
+      if (qualifies(state.entries, endScore)) {
+        nameEntry = { active: true, chars: [] };
+      }
+    });
+  };
+
+  const updateNameEntry = (input: InputManager): void => {
+    const ne = nameEntry;
+    if (!ne) return;
+    if (input.consumePress("Enter") || input.consumePress("NumpadEnter")) {
+      if (ne.chars.length >= 1) confirmName();
+      return;
+    }
+    if (input.consumePress("Backspace")) {
+      ne.chars.pop();
+      return;
+    }
+    if (ne.chars.length >= NAME_MAX) return;
+    for (let c = 65; c <= 90; c += 1) {
+      if (input.consumePress(`Key${String.fromCharCode(c)}`)) {
+        ne.chars.push(String.fromCharCode(c));
+        return;
+      }
+    }
+    for (let d = 0; d <= 9; d += 1) {
+      if (input.consumePress(`Digit${d}`) || input.consumePress(`Numpad${d}`)) {
+        ne.chars.push(String(d));
+        return;
+      }
+    }
+  };
+
+  const confirmName = (): void => {
+    const ne = nameEntry;
+    if (!ne) return;
+    const name = ne.chars.join("");
+    nameEntry = null;
+    submitState = "submitting";
+    justSubmitted = { name, score: endScore };
+    submitScore(LEADERBOARD_GAME, LEADERBOARD_BOARD, name, endScore).then((res) => {
+      if (currentMode !== "rally" || phase !== "roundEnd") return;
+      if (res) {
+        board = res.entries;
+        submitState = "done";
+      } else {
+        submitState = "error";
+      }
+    });
+  };
+
+  const formatBoard = (): string => {
+    const heading = "— RICOCHET · Rally —";
+    if (board.length === 0) {
+      return `${heading}\n(no scores yet — be the first!)`;
+    }
+    const rows = board.slice(0, 10).map((e, i) => {
+      const mine =
+        justSubmitted !== null &&
+        e.name === justSubmitted.name &&
+        Math.abs(e.score - justSubmitted.score) < 0.05;
+      const marker = mine ? "▶ " : "  ";
+      const rank = String(i + 1).padStart(2, " ");
+      const name = e.name.padEnd(NAME_MAX, " ");
+      const score = String(Math.round(e.score)).padStart(7, " ");
+      return `${marker}${rank}. ${name} ${score}`;
+    });
+    return `${heading}\n${rows.join("\n")}`;
+  };
+
+  const resetLeaderboardState = (): void => {
+    rallyPaused = false;
+    leaderboardActive = false;
+    nameEntry = null;
+    board = [];
+    submitState = "idle";
+    justSubmitted = null;
+  };
+
+  const resumeRally = (): void => {
+    rallyPaused = false;
+    resetLeaderboardState();
+    phase = "playing";
+    resetPaddles();
+    resetBall(Math.random() > 0.5 ? 1 : 2);
+  };
 
   const p1: Paddle = {
     y: h * 0.5,
@@ -389,6 +514,7 @@ export const createGame = (width: number, height: number): Game => {
       particles.emit(ball.pos, 30, 55, 200);
       phase = "roundEnd";
       roundTimer = 0.9;
+      beginEndSequence(ball.rally);
       return;
     }
     const scorer: 1 | 2 = side === "left" ? 2 : 1;
@@ -476,6 +602,7 @@ export const createGame = (width: number, height: number): Game => {
 
     startRound(): void {
       phase = "playing";
+      resetLeaderboardState();
       scoreP1 = 0;
       scoreP2 = 0;
       winner = null;
@@ -485,7 +612,9 @@ export const createGame = (width: number, height: number): Game => {
     },
 
     restartRound(): void {
+      if (nameEntry?.active) return;
       phase = "playing";
+      resetLeaderboardState();
       scoreP1 = 0;
       scoreP2 = 0;
       winner = null;
@@ -494,11 +623,23 @@ export const createGame = (width: number, height: number): Game => {
       resetBall(Math.random() > 0.5 ? 1 : 2);
     },
 
-    update(dt: number, p1In: PlayerInput, p2In: PlayerInput, audio: AudioSystem): void {
+    update(dt: number, p1In: PlayerInput, p2In: PlayerInput, input: InputManager, audio: AudioSystem): void {
       particles.update(dt);
       shake = Math.max(0, shake - dt * 28);
 
       if (phase === "roundEnd" || phase === "matchEnd") {
+        if (currentMode === "rally" && rallyPaused) {
+          if (nameEntry?.active) {
+            updateNameEntry(input);
+          } else if (
+            input.consumePress("Enter") ||
+            input.consumePress("NumpadEnter") ||
+            input.consumePress("Space")
+          ) {
+            resumeRally();
+          }
+          return;
+        }
         roundTimer -= dt;
         if (roundTimer <= 0 && phase === "roundEnd") {
           phase = "playing";
@@ -825,6 +966,32 @@ export const createGame = (width: number, height: number): Game => {
         return {
           title: `PLAYER ${winner} WINS`,
           body: `Final score ${scoreP1} — ${scoreP2}\nPress R to restart.`,
+          visible: true
+        };
+      }
+      if (currentMode === "rally" && phase === "roundEnd" && rallyPaused && leaderboardActive) {
+        const header = `Rally ended at ${endScore}\nBest ${bestRally}`;
+        const footer = "Enter to continue";
+        if (nameEntry?.active) {
+          const typed = nameEntry.chars.join("");
+          const cursor = nameEntry.chars.length < NAME_MAX ? "_" : "";
+          return {
+            title: "NEW HIGH SCORE!",
+            body:
+              `${header}\n\nEnter your initials:\n\n    ${typed}${cursor}\n\n` +
+              `Type A–Z / 0–9  ·  Backspace  ·  Enter to save`,
+            visible: true
+          };
+        }
+        const status =
+          submitState === "submitting"
+            ? "\nSaving…"
+            : submitState === "error"
+              ? "\n(couldn't reach leaderboard — score not saved)"
+              : "";
+        return {
+          title: `RALLY ${endScore}`,
+          body: `${header}${status}\n\n${formatBoard()}\n\n${footer}`,
           visible: true
         };
       }

@@ -1,8 +1,21 @@
 import type { PlayerInput } from "./input";
+import type { InputManager } from "./input";
 import { ParticleSystem } from "./particles";
 import { AudioSystem } from "./audio";
 import { clamp, dist, len, lerp, normalize, sub, vec, type Vec } from "./vec";
 import { type ModeId, MODE_LABEL, MODE_DESCRIPTION, MODE_HELP } from "./modes";
+import {
+  getLeaderboard,
+  qualifies,
+  submitScore,
+  type LeaderboardEntry
+} from "@arcade/leaderboard";
+
+const LEADERBOARD_GAME = "echo";
+const NAME_MAX = 8;
+
+type NameEntry = { active: boolean; chars: string[] };
+type SubmitState = "idle" | "submitting" | "done" | "error";
 
 export type GamePhase = "title" | "playing" | "waveClear" | "gameOver" | "victory";
 
@@ -103,7 +116,7 @@ export type Game = {
   selectMode: (id: ModeId) => void;
   startRound: () => void;
   restartRound: () => void;
-  update: (dt: number, p1: PlayerInput, p2: PlayerInput, audio: AudioSystem) => void;
+  update: (dt: number, p1: PlayerInput, p2: PlayerInput, input: InputManager, audio: AudioSystem) => void;
   render: (ctx: CanvasRenderingContext2D, w: number, h: number, alpha: number) => void;
   applyShake: (ctx: CanvasRenderingContext2D) => void;
   getHud: () => { left: string; center: string; right: string };
@@ -228,6 +241,142 @@ export const createGame = (width: number, height: number): Game => {
   let resonanceFlash = 0;
   let resonanceCooldown = 0;
 
+  // Leaderboard state (game over / victory)
+  let endHandled = false;
+  let endScore = 0;
+  let endBoardKey = "";
+  let leaderboardActive = false;
+  let nameEntry: NameEntry | null = null;
+  let board: LeaderboardEntry[] = [];
+  let submitState: SubmitState = "idle";
+  let justSubmitted: { name: string; score: number } | null = null;
+
+  const beginEndSequence = (): void => {
+    const boardKey = selectedMode;
+    endHandled = true;
+    endScore = wave;
+    endBoardKey = boardKey;
+    submitState = "idle";
+    justSubmitted = null;
+    nameEntry = null;
+    leaderboardActive = false;
+    board = [];
+    getLeaderboard(LEADERBOARD_GAME, boardKey).then((state) => {
+      if ((phase !== "gameOver" && phase !== "victory") || endBoardKey !== boardKey) return;
+      if (!state.enabled) return;
+      leaderboardActive = true;
+      board = state.entries;
+      if (qualifies(state.entries, endScore)) {
+        nameEntry = { active: true, chars: [] };
+      }
+    });
+  };
+
+  const updateNameEntry = (input: InputManager): void => {
+    const ne = nameEntry;
+    if (!ne) return;
+    if (input.consumePress("Enter") || input.consumePress("NumpadEnter")) {
+      if (ne.chars.length >= 1) confirmName();
+      return;
+    }
+    if (input.consumePress("Backspace")) {
+      ne.chars.pop();
+      return;
+    }
+    if (ne.chars.length >= NAME_MAX) return;
+    for (let c = 65; c <= 90; c += 1) {
+      if (input.consumePress(`Key${String.fromCharCode(c)}`)) {
+        ne.chars.push(String.fromCharCode(c));
+        return;
+      }
+    }
+    for (let d = 0; d <= 9; d += 1) {
+      if (input.consumePress(`Digit${d}`) || input.consumePress(`Numpad${d}`)) {
+        ne.chars.push(String(d));
+        return;
+      }
+    }
+  };
+
+  const confirmName = (): void => {
+    const ne = nameEntry;
+    if (!ne) return;
+    const name = ne.chars.join("");
+    nameEntry = null;
+    submitState = "submitting";
+    justSubmitted = { name, score: endScore };
+    const boardKey = endBoardKey;
+    submitScore(LEADERBOARD_GAME, boardKey, name, endScore).then((res) => {
+      if (endBoardKey !== boardKey) return;
+      if (res) {
+        board = res.entries;
+        submitState = "done";
+      } else {
+        submitState = "error";
+      }
+    });
+  };
+
+  const formatBoard = (): string => {
+    const heading = `— ECHO · ${MODE_LABEL[selectedMode]} —`;
+    if (board.length === 0) {
+      return `${heading}\n(no scores yet — be the first!)`;
+    }
+    const rows = board.slice(0, 10).map((e, i) => {
+      const mine =
+        justSubmitted !== null &&
+        e.name === justSubmitted.name &&
+        Math.abs(e.score - justSubmitted.score) < 0.05;
+      const marker = mine ? "▶ " : "  ";
+      const rank = String(i + 1).padStart(2, " ");
+      const name = e.name.padEnd(NAME_MAX, " ");
+      const score = `Wave ${Math.round(e.score)}`.padStart(10, " ");
+      return `${marker}${rank}. ${name} ${score}`;
+    });
+    return `${heading}\n${rows.join("\n")}`;
+  };
+
+  const resetLeaderboardState = (): void => {
+    endHandled = false;
+    leaderboardActive = false;
+    nameEntry = null;
+    board = [];
+    submitState = "idle";
+    justSubmitted = null;
+  };
+
+  const buildEndOverlay = (
+    title: string,
+    header: string,
+    footer: string
+  ): { title: string; body: string; visible: boolean } => {
+    if (!leaderboardActive) {
+      return { title, body: `${header}\n${footer}`, visible: true };
+    }
+    if (nameEntry?.active) {
+      const typed = nameEntry.chars.join("");
+      const cursor = nameEntry.chars.length < NAME_MAX ? "_" : "";
+      return {
+        title: "NEW HIGH SCORE!",
+        body:
+          `${header}\n\nEnter your initials:\n\n    ${typed}${cursor}\n\n` +
+          `Type A–Z / 0–9  ·  Backspace  ·  Enter to save`,
+        visible: true
+      };
+    }
+    const status =
+      submitState === "submitting"
+        ? "\nSaving…"
+        : submitState === "error"
+          ? "\n(couldn't reach leaderboard — score not saved)"
+          : "";
+    return {
+      title,
+      body: `${header}${status}\n\n${formatBoard()}\n\n${footer}`,
+      visible: true
+    };
+  };
+
   const makeBase = (pos: Vec, maxHp: number, radius: number): Base => ({
     pos,
     hp: maxHp,
@@ -302,6 +451,7 @@ export const createGame = (width: number, height: number): Game => {
   };
 
   const resetSession = (): void => {
+    resetLeaderboardState();
     wave = 1;
     shake = 0;
     bases = buildBases();
@@ -492,6 +642,7 @@ export const createGame = (width: number, height: number): Game => {
     particles.emit(base.pos, 30, 0, 240);
     phase = "gameOver";
     audio.gameOver();
+    if (!endHandled) beginEndSequence();
   };
 
   const updateEnemies = (dt: number, audio: AudioSystem): void => {
@@ -623,16 +774,24 @@ export const createGame = (width: number, height: number): Game => {
     },
 
     restartRound(): void {
+      if (nameEntry?.active) return;
       phase = "playing";
       resetSession();
     },
 
-    update(dt: number, p1: PlayerInput, p2: PlayerInput, audio: AudioSystem): void {
+    update(dt: number, p1: PlayerInput, p2: PlayerInput, input: InputManager, audio: AudioSystem): void {
       particles.update(dt);
       shake = Math.max(0, shake - dt * 22);
       corePulse = (corePulse + dt * 1.6) % (Math.PI * 2);
       resonanceFlash = Math.max(0, resonanceFlash - dt * 2.2);
       resonanceCooldown = Math.max(0, resonanceCooldown - dt);
+
+      if (phase === "gameOver" || phase === "victory") {
+        if (nameEntry?.active) {
+          updateNameEntry(input);
+        }
+        return;
+      }
 
       for (let i = strikes.length - 1; i >= 0; i -= 1) {
         strikes[i].life -= dt;
@@ -672,6 +831,7 @@ export const createGame = (width: number, height: number): Game => {
         if (wave >= MAX_WAVES) {
           phase = "victory";
           audio.victory();
+          if (!endHandled) beginEndSequence();
         } else {
           wave += 1;
           for (const base of bases) {
@@ -917,24 +1077,18 @@ export const createGame = (width: number, height: number): Game => {
       }
       if (phase === "gameOver") {
         const what = selectedMode === "grid" ? "A NODE WENT DARK" : "THE DARK TOOK THE CORE";
-        return {
-          title: what,
-          body:
-            `${MODE_LABEL[selectedMode]} — held to wave ${wave} of ${MAX_WAVES}\n` +
-            `Foes banished — P1 ${players[0].score} · P2 ${players[1].score}\n` +
-            "Press R to try again.",
-          visible: true
-        };
+        const header =
+          `${MODE_LABEL[selectedMode]} — held to wave ${wave} of ${MAX_WAVES}\n` +
+          `Foes banished — P1 ${players[0].score} · P2 ${players[1].score}`;
+        const footer = "Press R to try again.";
+        return buildEndOverlay(what, header, footer);
       }
       if (phase === "victory") {
-        return {
-          title: "DAWN — THE GRID HELD",
-          body:
-            `${MODE_LABEL[selectedMode]} — all ${MAX_WAVES} waves survived.\n` +
-            `Foes banished — P1 ${players[0].score} · P2 ${players[1].score}\n` +
-            "Press R to play again.",
-          visible: true
-        };
+        const header =
+          `${MODE_LABEL[selectedMode]} — all ${MAX_WAVES} waves survived.\n` +
+          `Foes banished — P1 ${players[0].score} · P2 ${players[1].score}`;
+        const footer = "Press R to play again.";
+        return buildEndOverlay("DAWN — THE GRID HELD", header, footer);
       }
       if (helpHeld) {
         return {

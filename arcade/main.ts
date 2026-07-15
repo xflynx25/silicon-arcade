@@ -5,6 +5,8 @@
 // its requestAnimationFrame loop, every event listener, and its AudioContext —
 // so the next game boots exactly as if you had just run `pnpm dev`.
 
+import type { LeaderboardEntry } from "@arcade/leaderboard";
+
 type Game = {
   id: string;
   name: string;
@@ -197,15 +199,20 @@ window.addEventListener("keydown", (e) => {
   }
 });
 
+
 // ---------------------------------------------------------------------------
 // Leaderboards — read-only view of every game's boards, gated on the same
 // /api/leaderboard "enabled" flag the games themselves check. Games opt in by
-// adding an entry here; each board id must match what the game submits under
-// (see e.g. tether/src/game.ts's per-difficulty boards).
+// adding an entry here; each board id must match what the game submits under.
 
-type LeaderboardEntry = { name: string; score: number; date: string };
 type BoardDef = { id: string; label: string };
-type LeaderboardGame = { id: string; name: string; accent: string; boards: BoardDef[]; formatScore: (score: number) => string };
+type LeaderboardGame = {
+  id: string;
+  name: string;
+  accent: string;
+  boards: BoardDef[];
+  formatScore: (score: number, boardId: string) => string;
+};
 
 const LEADERBOARD_GAMES: LeaderboardGame[] = [
   {
@@ -218,6 +225,41 @@ const LEADERBOARD_GAMES: LeaderboardGame[] = [
       { id: "hard", label: "Hard" }
     ],
     formatScore: (score) => `${score.toFixed(1)}s`
+  },
+  {
+    id: "cipher",
+    name: "CIPHER",
+    accent: "#7fffcf",
+    boards: [{ id: "default", label: "Default" }],
+    formatScore: (score) => `${Math.round(score)} steps`
+  },
+  {
+    id: "nova",
+    name: "NOVA",
+    accent: "#ffb347",
+    boards: [
+      { id: "flares", label: "Flares" },
+      { id: "rings", label: "Rings" }
+    ],
+    formatScore: (score, boardId) =>
+      boardId === "flares" ? `${score.toFixed(1)}s` : String(Math.round(score))
+  },
+  {
+    id: "ricochet",
+    name: "RICOCHET",
+    accent: "#f5e638",
+    boards: [{ id: "rally", label: "Rally" }],
+    formatScore: (score) => String(Math.round(score))
+  },
+  {
+    id: "echo",
+    name: "ECHO",
+    accent: "#b388ff",
+    boards: [
+      { id: "core", label: "Core" },
+      { id: "grid", label: "Grid" }
+    ],
+    formatScore: (score) => `Wave ${Math.round(score)}`
   }
 ];
 
@@ -272,7 +314,7 @@ async function loadLbBoard(): Promise<void> {
     const row = document.createElement("tr");
     const date = new Date(entry.date);
     const dateLabel = Number.isNaN(date.getTime()) ? "—" : date.toLocaleDateString();
-    row.innerHTML = `<td>${i + 1}</td><td>${entry.name}</td><td>${game.formatScore(entry.score)}</td><td>${dateLabel}</td>`;
+    row.innerHTML = `<td>${i + 1}</td><td>${entry.name}</td><td>${game.formatScore(entry.score, board.id)}</td><td>${dateLabel}</td>`;
     lbRows.append(row);
   }
 }

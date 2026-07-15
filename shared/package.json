@@ -1,0 +1,12 @@
+{
+  "name": "@arcade/leaderboard",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.4"
+  }
+}

@@ -93,7 +93,7 @@ createFixedLoop({
 
     const p1 = input.readPlayerOne();
     const p2 = input.readPlayerTwo();
-    game.update(dt, p1, p2, audio);
+    game.update(dt, p1, p2, input, audio);
 
     hud.setHud(game.getHud());
     hud.setOverlay(game.getOverlay(input.isHeld("KeyH")));

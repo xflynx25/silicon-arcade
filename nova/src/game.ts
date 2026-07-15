@@ -3,6 +3,18 @@ import { ParticleSystem } from "./particles";
 import { AudioSystem } from "./audio";
 import { CONTROLS, MODE_HELP, MODE_LABEL, MODE_TITLE_LINE, type ModeId } from "./modes";
 import { add, clamp, dist, len, normalize, scale, sub, vec, type Vec } from "./vec";
+import {
+  getLeaderboard,
+  qualifies,
+  submitScore,
+  type LeaderboardEntry
+} from "@arcade/leaderboard";
+
+const LEADERBOARD_GAME = "nova";
+const NAME_MAX = 8;
+
+type NameEntry = { active: boolean; chars: string[] };
+type SubmitState = "idle" | "submitting" | "done" | "error";
 
 export type GamePhase = "title" | "playing" | "roundEnd" | "matchEnd";
 export type Mode = ModeId;
@@ -169,6 +181,112 @@ export const createGame = (width: number, height: number): Game => {
   let bestRings = 0;
   let combo = 0;
   let comboTimer = 0;
+
+  // Leaderboard state (flares / rings end-of-run)
+  let endHandled = false;
+  let endScore = 0;
+  let endBoardKey = "";
+  let leaderboardActive = false;
+  let nameEntry: NameEntry | null = null;
+  let board: LeaderboardEntry[] = [];
+  let submitState: SubmitState = "idle";
+  let justSubmitted: { name: string; score: number } | null = null;
+
+  const beginEndSequence = (boardKey: string, score: number): void => {
+    endHandled = true;
+    endScore = score;
+    endBoardKey = boardKey;
+    submitState = "idle";
+    justSubmitted = null;
+    nameEntry = null;
+    leaderboardActive = false;
+    board = [];
+    getLeaderboard(LEADERBOARD_GAME, boardKey).then((state) => {
+      if (phase !== "matchEnd" || endBoardKey !== boardKey) return;
+      if (!state.enabled) return;
+      leaderboardActive = true;
+      board = state.entries;
+      if (qualifies(state.entries, endScore)) {
+        nameEntry = { active: true, chars: [] };
+      }
+    });
+  };
+
+  const updateNameEntry = (input: InputManager): void => {
+    const ne = nameEntry;
+    if (!ne) return;
+    if (input.consumePress("Enter") || input.consumePress("NumpadEnter")) {
+      if (ne.chars.length >= 1) confirmName();
+      return;
+    }
+    if (input.consumePress("Backspace")) {
+      ne.chars.pop();
+      return;
+    }
+    if (ne.chars.length >= NAME_MAX) return;
+    for (let c = 65; c <= 90; c += 1) {
+      if (input.consumePress(`Key${String.fromCharCode(c)}`)) {
+        ne.chars.push(String.fromCharCode(c));
+        return;
+      }
+    }
+    for (let d = 0; d <= 9; d += 1) {
+      if (input.consumePress(`Digit${d}`) || input.consumePress(`Numpad${d}`)) {
+        ne.chars.push(String(d));
+        return;
+      }
+    }
+  };
+
+  const confirmName = (): void => {
+    const ne = nameEntry;
+    if (!ne) return;
+    const name = ne.chars.join("");
+    nameEntry = null;
+    submitState = "submitting";
+    justSubmitted = { name, score: endScore };
+    const boardKey = endBoardKey;
+    submitScore(LEADERBOARD_GAME, boardKey, name, endScore).then((res) => {
+      if (endBoardKey !== boardKey) return;
+      if (res) {
+        board = res.entries;
+        submitState = "done";
+      } else {
+        submitState = "error";
+      }
+    });
+  };
+
+  const formatBoard = (modeLabel: string): string => {
+    const heading = `— NOVA · ${modeLabel} —`;
+    if (board.length === 0) {
+      return `${heading}\n(no scores yet — be the first!)`;
+    }
+    const rows = board.slice(0, 10).map((e, i) => {
+      const mine =
+        justSubmitted !== null &&
+        e.name === justSubmitted.name &&
+        Math.abs(e.score - justSubmitted.score) < 0.05;
+      const marker = mine ? "▶ " : "  ";
+      const rank = String(i + 1).padStart(2, " ");
+      const name = e.name.padEnd(NAME_MAX, " ");
+      const scoreStr =
+        endBoardKey === "flares"
+          ? `${e.score.toFixed(1)}s`.padStart(7, " ")
+          : String(Math.round(e.score)).padStart(7, " ");
+      return `${marker}${rank}. ${name} ${scoreStr}`;
+    });
+    return `${heading}\n${rows.join("\n")}`;
+  };
+
+  const resetLeaderboardState = (): void => {
+    endHandled = false;
+    leaderboardActive = false;
+    nameEntry = null;
+    board = [];
+    submitState = "idle";
+    justSubmitted = null;
+  };
 
   const particles = new ParticleSystem();
 
@@ -593,6 +711,7 @@ export const createGame = (width: number, height: number): Game => {
     phase = "matchEnd";
     roundTimer = 0;
     audio.shatter();
+    if (!endHandled) beginEndSequence("flares", survivalTime);
   };
 
   const damageCoopComet = (
@@ -917,6 +1036,7 @@ export const createGame = (width: number, height: number): Game => {
       bestRings = Math.max(bestRings, score);
       lastCause = "Time!";
       phase = "matchEnd";
+      if (!endHandled) beginEndSequence("rings", score);
     }
   };
 
@@ -934,11 +1054,14 @@ export const createGame = (width: number, height: number): Game => {
 
     startRound(): void {
       phase = "playing";
+      resetLeaderboardState();
       beginMode();
     },
 
     restartRound(): void {
+      if (nameEntry?.active) return;
       phase = "playing";
+      resetLeaderboardState();
       beginMode();
     },
 
@@ -967,6 +1090,9 @@ export const createGame = (width: number, height: number): Game => {
       }
 
       if (phase === "roundEnd" || phase === "matchEnd") {
+        if (phase === "matchEnd" && nameEntry?.active) {
+          updateNameEntry(input);
+        }
         roundTimer -= dt;
         if (roundTimer <= 0 && phase === "roundEnd") {
           phase = "playing";
@@ -1244,15 +1370,59 @@ export const createGame = (width: number, height: number): Game => {
           };
         }
         if (mode === "flares") {
+          const header = `Survived ${formatTime(survivalTime)}\n${lastCause}\nBest ${formatTime(bestFlares)}`;
+          const footer = "Press R to fly again";
+          if (!leaderboardActive) {
+            return { title: `SURVIVED ${formatTime(survivalTime)}`, body: `${header}\n${footer}`, visible: true };
+          }
+          if (nameEntry?.active) {
+            const typed = nameEntry.chars.join("");
+            const cursor = nameEntry.chars.length < NAME_MAX ? "_" : "";
+            return {
+              title: "NEW HIGH SCORE!",
+              body:
+                `${header}\n\nEnter your initials:\n\n    ${typed}${cursor}\n\n` +
+                `Type A–Z / 0–9  ·  Backspace  ·  Enter to save`,
+              visible: true
+            };
+          }
+          const status =
+            submitState === "submitting"
+              ? "\nSaving…"
+              : submitState === "error"
+                ? "\n(couldn't reach leaderboard — score not saved)"
+                : "";
           return {
             title: `SURVIVED ${formatTime(survivalTime)}`,
-            body: `${lastCause}\nBest ${formatTime(bestFlares)}\nPress R to fly again.`,
+            body: `${header}${status}\n\n${formatBoard(MODE_LABEL.flares)}\n\n${footer}`,
             visible: true
           };
         }
+        const ringsHeader = `Score ${score} rings\nBest ${bestRings}`;
+        const ringsFooter = "Press R to run it back";
+        if (!leaderboardActive) {
+          return { title: `TIME!  ${score} RINGS`, body: `${ringsHeader}\n${ringsFooter}`, visible: true };
+        }
+        if (nameEntry?.active) {
+          const typed = nameEntry.chars.join("");
+          const cursor = nameEntry.chars.length < NAME_MAX ? "_" : "";
+          return {
+            title: "NEW HIGH SCORE!",
+            body:
+              `${ringsHeader}\n\nEnter your initials:\n\n    ${typed}${cursor}\n\n` +
+              `Type A–Z / 0–9  ·  Backspace  ·  Enter to save`,
+            visible: true
+          };
+        }
+        const ringsStatus =
+          submitState === "submitting"
+            ? "\nSaving…"
+            : submitState === "error"
+              ? "\n(couldn't reach leaderboard — score not saved)"
+              : "";
         return {
           title: `TIME!  ${score} RINGS`,
-          body: `Best ${bestRings}\nPress R to run it back.`,
+          body: `${ringsHeader}${ringsStatus}\n\n${formatBoard(MODE_LABEL.rings)}\n\n${ringsFooter}`,
           visible: true
         };
       }

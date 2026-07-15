@@ -5,6 +5,20 @@
 // the timing. A single mistake — or a spent fuse — ends the run. No physics,
 // no opponent: just you against a lengthening code.
 
+import {
+  getLeaderboard,
+  qualifies,
+  submitScore,
+  type LeaderboardEntry
+} from "@arcade/leaderboard";
+
+const LEADERBOARD_GAME = "cipher";
+const LEADERBOARD_BOARD = "default";
+const NAME_MAX = 8;
+
+type NameEntry = { active: boolean; chars: string[] };
+type SubmitState = "idle" | "submitting" | "done" | "error";
+
 const app = document.getElementById("app") as HTMLElement;
 const canvas = document.createElement("canvas");
 const ctx = canvas.getContext("2d")!;
@@ -91,6 +105,15 @@ let round = 0;
 let best = Number(localStorage.getItem("cipher-best") || 0);
 let flash = 0; // full-screen flash on error / level-up
 
+// Leaderboard state (end-of-run)
+let endHandled = false;
+let endScore = 0;
+let leaderboardActive = false;
+let nameEntry: NameEntry | null = null;
+let board: LeaderboardEntry[] = [];
+let submitState: SubmitState = "idle";
+let justSubmitted: { name: string; score: number } | null = null;
+
 const gapFor = (r: number): number => Math.max(0.14, 0.42 - r * 0.02);
 const litFor = (r: number): number => Math.max(0.16, 0.5 - r * 0.02);
 const fuseFor = (len: number): number => 1.6 + len * 0.9; // seconds to echo the code
@@ -103,7 +126,69 @@ const startGame = (): void => {
   round = 0;
   phase = "show";
   flash = 0;
+  endHandled = false;
+  leaderboardActive = false;
+  nameEntry = null;
+  board = [];
+  submitState = "idle";
+  justSubmitted = null;
   nextRound();
+};
+
+const beginEndSequence = (): void => {
+  endHandled = true;
+  endScore = Math.max(0, round - 1);
+  submitState = "idle";
+  justSubmitted = null;
+  nameEntry = null;
+  leaderboardActive = false;
+  board = [];
+  getLeaderboard(LEADERBOARD_GAME, LEADERBOARD_BOARD).then((state) => {
+    if (phase !== "over") return;
+    if (!state.enabled) return;
+    leaderboardActive = true;
+    board = state.entries;
+    if (qualifies(state.entries, endScore)) {
+      nameEntry = { active: true, chars: [] };
+    }
+  });
+};
+
+const confirmName = (): void => {
+  const ne = nameEntry;
+  if (!ne) return;
+  const name = ne.chars.join("");
+  nameEntry = null;
+  submitState = "submitting";
+  justSubmitted = { name, score: endScore };
+  submitScore(LEADERBOARD_GAME, LEADERBOARD_BOARD, name, endScore).then((res) => {
+    if (phase !== "over") return;
+    if (res) {
+      board = res.entries;
+      submitState = "done";
+    } else {
+      submitState = "error";
+    }
+  });
+};
+
+const formatBoard = (): string => {
+  const heading = "— CIPHER —";
+  if (board.length === 0) {
+    return `${heading}\n(no scores yet — be the first!)`;
+  }
+  const rows = board.slice(0, 10).map((e, i) => {
+    const mine =
+      justSubmitted !== null &&
+      e.name === justSubmitted.name &&
+      Math.abs(e.score - justSubmitted.score) < 0.05;
+    const marker = mine ? "▶ " : "  ";
+    const rank = String(i + 1).padStart(2, " ");
+    const name = e.name.padEnd(NAME_MAX, " ");
+    const score = `${e.score} steps`.padStart(10, " ");
+    return `${marker}${rank}. ${name} ${score}`;
+  });
+  return `${heading}\n${rows.join("\n")}`;
 };
 
 const nextRound = (): void => {
@@ -130,10 +215,12 @@ const gameOver = (): void => {
     localStorage.setItem("cipher-best", String(best));
   }
   beep(110, 0.5, "sawtooth");
+  if (!endHandled) beginEndSequence();
 };
 
 const press = (pad: number): void => {
   if (phase === "idle" || phase === "over") {
+    if (phase === "over" && nameEntry?.active) return;
     startGame();
     return;
   }
@@ -158,10 +245,40 @@ const press = (pad: number): void => {
 };
 
 // ------------------------------------------------------------------ input ----
+const handleNameKey = (e: KeyboardEvent): boolean => {
+  const ne = nameEntry;
+  if (!ne?.active || phase !== "over") return false;
+  if (e.key === "Enter") {
+    if (ne.chars.length >= 1) confirmName();
+    e.preventDefault();
+    return true;
+  }
+  if (e.key === "Backspace") {
+    ne.chars.pop();
+    e.preventDefault();
+    return true;
+  }
+  if (ne.chars.length >= NAME_MAX) return true;
+  const k = e.key.toUpperCase();
+  if (k.length === 1 && k >= "A" && k <= "Z") {
+    ne.chars.push(k);
+    e.preventDefault();
+    return true;
+  }
+  if (e.key.length === 1 && e.key >= "0" && e.key <= "9") {
+    ne.chars.push(e.key);
+    e.preventDefault();
+    return true;
+  }
+  return true;
+};
+
 window.addEventListener("keydown", (e) => {
+  if (phase === "over" && nameEntry?.active && handleNameKey(e)) return;
+
   const k = e.key.toLowerCase();
   if (k === " " || k === "enter") {
-    if (phase === "idle" || phase === "over") startGame();
+    if (phase === "idle" || (phase === "over" && !nameEntry?.active)) startGame();
     e.preventDefault();
     return;
   }
@@ -177,6 +294,7 @@ const pointerHit = (clientX: number, clientY: number): void => {
   const x = clientX - rect.left;
   const y = clientY - rect.top;
   if (phase === "idle" || phase === "over") {
+    if (phase === "over" && nameEntry?.active) return;
     startGame();
     return;
   }
@@ -325,15 +443,65 @@ const render = (): void => {
     ctx.font = "700 18px \"Trebuchet MS\", sans-serif";
     ctx.fillText("ECHO", cx, H * 0.12);
   } else if (phase === "over") {
-    ctx.font = "800 38px \"Trebuchet MS\", sans-serif";
-    ctx.fillStyle = "#ff5169";
-    ctx.fillText("BROKEN", cx, H * 0.18);
-    ctx.fillStyle = "#e6ecff";
-    ctx.font = "700 22px \"Trebuchet MS\", sans-serif";
-    ctx.fillText(`You held ${Math.max(0, round - 1)} steps of the cipher`, cx, H * 0.18 + 40);
-    ctx.fillStyle = "#9fb0e6";
-    ctx.font = "600 16px \"Trebuchet MS\", sans-serif";
-    ctx.fillText("Press SPACE or tap to try again", cx, H * 0.18 + 70);
+    const steps = Math.max(0, round - 1);
+    if (nameEntry?.active) {
+      const typed = nameEntry.chars.join("");
+      const cursor = nameEntry.chars.length < NAME_MAX ? "_" : "";
+      ctx.font = "800 38px \"Trebuchet MS\", sans-serif";
+      ctx.fillStyle = "#ff5169";
+      ctx.fillText("NEW HIGH SCORE!", cx, H * 0.14);
+      ctx.fillStyle = "#e6ecff";
+      ctx.font = "700 20px \"Trebuchet MS\", sans-serif";
+      ctx.fillText(`You held ${steps} steps of the cipher`, cx, H * 0.14 + 36);
+      ctx.font = "600 17px \"Trebuchet MS\", sans-serif";
+      ctx.fillStyle = "#9fb0e6";
+      ctx.fillText("Enter your initials:", cx, H * 0.14 + 64);
+      ctx.fillStyle = "#e6ecff";
+      ctx.font = "700 28px \"Trebuchet MS\", sans-serif";
+      ctx.fillText(`${typed}${cursor}`, cx, H * 0.14 + 96);
+      ctx.font = "600 14px \"Trebuchet MS\", sans-serif";
+      ctx.fillStyle = "#9fb0e6";
+      ctx.fillText("Type A–Z / 0–9  ·  Backspace  ·  Enter to save", cx, H * 0.14 + 128);
+    } else if (!leaderboardActive) {
+      ctx.font = "800 38px \"Trebuchet MS\", sans-serif";
+      ctx.fillStyle = "#ff5169";
+      ctx.fillText("BROKEN", cx, H * 0.18);
+      ctx.fillStyle = "#e6ecff";
+      ctx.font = "700 22px \"Trebuchet MS\", sans-serif";
+      ctx.fillText(`You held ${steps} steps of the cipher`, cx, H * 0.18 + 40);
+      ctx.fillStyle = "#9fb0e6";
+      ctx.font = "600 16px \"Trebuchet MS\", sans-serif";
+      ctx.fillText("Press SPACE or tap to try again", cx, H * 0.18 + 70);
+    } else {
+      ctx.font = "800 38px \"Trebuchet MS\", sans-serif";
+      ctx.fillStyle = "#ff5169";
+      ctx.fillText("BROKEN", cx, H * 0.1);
+      ctx.fillStyle = "#e6ecff";
+      ctx.font = "700 20px \"Trebuchet MS\", sans-serif";
+      ctx.fillText(`You held ${steps} steps of the cipher`, cx, H * 0.1 + 32);
+      if (submitState === "submitting") {
+        ctx.fillStyle = "#9fb0e6";
+        ctx.font = "600 14px \"Trebuchet MS\", sans-serif";
+        ctx.fillText("Saving…", cx, H * 0.1 + 56);
+      } else if (submitState === "error") {
+        ctx.fillStyle = "#ff8a9a";
+        ctx.font = "600 14px \"Trebuchet MS\", sans-serif";
+        ctx.fillText("(couldn't reach leaderboard — score not saved)", cx, H * 0.1 + 56);
+      }
+      ctx.fillStyle = "#8ea0d8";
+      ctx.font = "600 13px \"Trebuchet MS\", sans-serif";
+      ctx.textAlign = "left";
+      const boardLines = formatBoard().split("\n");
+      let by = H * 0.1 + 76;
+      for (const line of boardLines) {
+        ctx.fillText(line, W * 0.5 - 140, by);
+        by += 18;
+      }
+      ctx.textAlign = "center";
+      ctx.fillStyle = "#9fb0e6";
+      ctx.font = "600 16px \"Trebuchet MS\", sans-serif";
+      ctx.fillText("Press SPACE or tap to try again", cx, H - 40);
+    }
   }
 
   // flash overlay

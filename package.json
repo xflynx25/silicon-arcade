@@ -18,6 +18,7 @@
     "build": "pnpm -r build && tsc --noEmit && vite build && node scripts/assemble-dist.mjs"
   },
   "dependencies": {
+    "@arcade/leaderboard": "workspace:*",
     "@vercel/blob": "^2.6.1"
   },
   "devDependencies": {

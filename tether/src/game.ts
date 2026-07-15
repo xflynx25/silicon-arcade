@@ -8,7 +8,7 @@ import {
   qualifies,
   submitScore,
   type LeaderboardEntry
-} from "./leaderboard";
+} from "@arcade/leaderboard";
 
 // TETHER leaderboard metric = seconds survived, one board per difficulty.
 const LEADERBOARD_GAME = "tether";
