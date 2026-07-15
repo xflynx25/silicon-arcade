@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-07-15
+
+- **SALVO**: fixed shells vanishing mid-flight even on the Infinite ricochet preset — a hidden `shellLife` fuse (4–9s) was killing shells regardless of bounce count. Presets now expire shells only on bounce cap or tank hit. Also fixed obstacle slides counting a bounce every frame when a shell grazed a wall edge.
+
 ## 2026-07-06
 
 - **LEADERBOARDS**: added old-arcade high-score leaderboards with no database. Scores persist as **one JSON blob per game+board in Vercel Blob** (no Neon/Postgres), served through two tiny zero-config serverless functions at `/api/leaderboard` (`GET` to list top 20, `POST` to submit `{ game, board, name, score }`). No auth — just type your initials (A–Z / 0–9, arcade-style) when you make the board. A Vite dev plugin (`scripts/leaderboard-dev-plugin.ts`) serves the identical contract from a local `.data/` file so `pnpm dev` works with no cloud. Shared pure logic lives in `api/_leaderboard-core.ts` (validation, sort, trim) so dev and prod behave the same. **TETHER** is wired first: metric is seconds survived, one board per difficulty (easy/normal/hard); the Run Complete overlay now shows the board and prompts for initials on a qualifying run. Other games opt in by importing the same client helper. Optional `LEADERBOARD_TOKEN` shared secret guards writes. **Fully optional and self-disabling:** with no Blob store linked, the API reports the leaderboard as disabled and the games show no leaderboard UI at all (no board, no prompt, no errors) — a fresh clone/deploy Just Works; link a Blob store only when you want it (see README).

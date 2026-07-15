@@ -114,14 +114,14 @@ const MAPS: MapDef[] = [
   }
 ];
 
-// Ricochet rules. "Infinite" removes the bounce cap so shells only die of age,
-// with a longer fuse to keep the chaos alive.
+// Ricochet rules. Shells expire on bounce cap or tank hit; shellLife is only a
+// safety fuse when set to a finite value (unused by the presets below).
 type RuleDef = { name: string; blurb: string; bounceCap: number; shellLife: number };
 
 const RULES: RuleDef[] = [
-  { name: "Standard", blurb: "shells fade after 6 bounces", bounceCap: 6, shellLife: 4.2 },
-  { name: "Ricochet+", blurb: "14 bounces, longer fuse", bounceCap: 14, shellLife: 6 },
-  { name: "Infinite", blurb: "no bounce cap — pure chaos", bounceCap: Infinity, shellLife: 9 }
+  { name: "Standard", blurb: "shells fade after 6 bounces", bounceCap: 6, shellLife: Infinity },
+  { name: "Ricochet+", blurb: "shells fade after 14 bounces", bounceCap: 14, shellLife: Infinity },
+  { name: "Infinite", blurb: "no bounce cap — pure chaos", bounceCap: Infinity, shellLife: Infinity }
 ];
 
 type PowerKind = "rapid" | "multi" | "boost" | "scope" | "shield";
@@ -294,9 +294,6 @@ export const createGame = (width: number, height: number): Game => {
     resetRound();
   };
 
-  const rectContains = (r: Rect, x: number, y: number): boolean =>
-    x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
-
   // Push a tank (circle) out of a wall along the shallowest axis and kill the
   // velocity component driving it into the wall, so it slides along cover.
   const resolveTankRect = (tank: Tank, r: Rect): void => {
@@ -404,26 +401,52 @@ export const createGame = (width: number, height: number): Game => {
     }
   };
 
+  const shellExpired = (shell: Shell, rule: RuleDef): boolean =>
+    shell.bounces > rule.bounceCap ||
+    (Number.isFinite(rule.shellLife) && shell.age > rule.shellLife);
+
   const reflectShellRect = (shell: Shell, r: Rect): boolean => {
-    if (!rectContains(r, shell.pos.x, shell.pos.y)) {
+    const cx = clamp(shell.pos.x, r.x, r.x + r.w);
+    const cy = clamp(shell.pos.y, r.y, r.y + r.h);
+    const dx = shell.pos.x - cx;
+    const dy = shell.pos.y - cy;
+    const d2 = dx * dx + dy * dy;
+    if (d2 >= SHELL_R * SHELL_R) {
       return false;
     }
+
+    if (d2 > 0.0001) {
+      const d = Math.sqrt(d2);
+      const nx = dx / d;
+      const ny = dy / d;
+      const dot = shell.vel.x * nx + shell.vel.y * ny;
+      if (dot >= 0) {
+        return false;
+      }
+      const push = SHELL_R - d;
+      shell.pos.x += nx * push;
+      shell.pos.y += ny * push;
+      shell.vel.x -= 2 * dot * nx;
+      shell.vel.y -= 2 * dot * ny;
+      return true;
+    }
+
     const penL = shell.pos.x - r.x;
     const penR = r.x + r.w - shell.pos.x;
     const penT = shell.pos.y - r.y;
     const penB = r.y + r.h - shell.pos.y;
     const m = Math.min(penL, penR, penT, penB);
     if (m === penL) {
-      shell.pos.x = r.x;
+      shell.pos.x = r.x - SHELL_R;
       shell.vel.x = -Math.abs(shell.vel.x);
     } else if (m === penR) {
-      shell.pos.x = r.x + r.w;
+      shell.pos.x = r.x + r.w + SHELL_R;
       shell.vel.x = Math.abs(shell.vel.x);
     } else if (m === penT) {
-      shell.pos.y = r.y;
+      shell.pos.y = r.y - SHELL_R;
       shell.vel.y = -Math.abs(shell.vel.y);
     } else {
-      shell.pos.y = r.y + r.h;
+      shell.pos.y = r.y + r.h + SHELL_R;
       shell.vel.y = Math.abs(shell.vel.y);
     }
     return true;
@@ -602,7 +625,7 @@ export const createGame = (width: number, height: number): Game => {
         // Let shells and particles keep animating through the pause.
         for (let i = shells.length - 1; i >= 0; i -= 1) {
           shells[i].age += dt;
-          if (shells[i].age > rule.shellLife) shells.splice(i, 1);
+          if (shellExpired(shells[i], rule)) shells.splice(i, 1);
         }
         if (roundTimer <= 0 && phase === "roundEnd") {
           phase = "playing";
@@ -686,7 +709,7 @@ export const createGame = (width: number, height: number): Game => {
           audio.bounce();
         }
 
-        if (s.bounces > rule.bounceCap || s.age > rule.shellLife) {
+        if (shellExpired(s, rule)) {
           shells.splice(i, 1);
           continue;
         }
