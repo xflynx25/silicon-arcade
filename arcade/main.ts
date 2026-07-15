@@ -115,6 +115,15 @@ const GAMES: Game[] = [
       "One keyboard, two roles: the Pilot drives blind through a fog bubble while the Navigator sees everything and can only point the way.",
     accent: "#ff7a5c",
     glyph: `<circle cx="20" cy="28" r="14" opacity="0.35"/><circle cx="20" cy="28" r="5"/><path d="M40 14v10M40 40v-10M40 28h10M30 28h4"/><circle cx="40" cy="28" r="3"/>`
+  },
+  {
+    id: "cadence",
+    name: "CADENCE",
+    tag: "Rhythm call-and-response",
+    summary:
+      "A sample-accurate beat clock judges your timing, not your aim — trade licks with your partner or duel your rival on the beat.",
+    accent: "#ff3fa4",
+    glyph: `<path d="M14 40V22M24 40V14M34 40V26M44 40V18"/><circle cx="14" cy="18" r="3"/><circle cx="24" cy="10" r="3"/><circle cx="34" cy="22" r="3"/><circle cx="44" cy="14" r="3"/>`
   }
 ];
 
@@ -300,6 +309,16 @@ const LEADERBOARD_GAMES: LeaderboardGame[] = [
     ],
     formatScore: (score, boardId) =>
       boardId === "escort" ? `Depth ${score.toFixed(1)}m` : `${Math.round(score)} defused`
+  },
+  {
+    id: "cadence",
+    name: "CADENCE",
+    accent: "#ff3fa4",
+    boards: [
+      { id: "trade", label: "Trade" },
+      { id: "clash", label: "Clash" }
+    ],
+    formatScore: (score, boardId) => (boardId === "trade" ? `${Math.round(score)} bars` : `${Math.round(score)} pts`)
   }
 ];
 

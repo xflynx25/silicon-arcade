@@ -1,0 +1,17 @@
+{
+  "name": "cadence",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build"
+  },
+  "dependencies": {
+    "@arcade/leaderboard": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.4",
+    "vite": "^5.3.5"
+  }
+}

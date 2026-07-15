@@ -17,6 +17,7 @@
     "dev:cipher": "pnpm --filter cipher dev",
     "dev:relay": "pnpm --filter relay dev",
     "dev:ghost": "pnpm --filter ghost dev",
+    "dev:cadence": "pnpm --filter cadence dev",
     "build": "pnpm -r build && tsc --noEmit && vite build && node scripts/assemble-dist.mjs"
   },
   "dependencies": {

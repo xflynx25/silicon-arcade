@@ -11,3 +11,4 @@ packages:
   - "cipher"
   - "relay"
   - "ghost"
+  - "cadence"
