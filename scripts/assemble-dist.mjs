@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
-const games = ["tether", "polarity", "ricochet", "echo", "vortex", "nova", "lattice", "salvo"];
+const games = ["tether", "polarity", "ricochet", "echo", "vortex", "nova", "lattice", "salvo", "cipher"];
 
 for (const game of games) {
   const src = path.join(root, game, "dist");

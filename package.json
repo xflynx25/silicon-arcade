@@ -14,6 +14,7 @@
     "dev:nova": "pnpm --filter nova dev",
     "dev:lattice": "pnpm --filter lattice dev",
     "dev:salvo": "pnpm --filter salvo dev",
+    "dev:cipher": "pnpm --filter cipher dev",
     "build": "pnpm -r build && tsc --noEmit && vite build && node scripts/assemble-dist.mjs"
   },
   "dependencies": {

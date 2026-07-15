@@ -86,6 +86,15 @@ const GAMES: Game[] = [
       "Steer armored tanks around cover and fire ricocheting shells — bank shots off the walls to catch your rival.",
     accent: "#ffb638",
     glyph: `<rect x="12" y="26" width="24" height="16" rx="3"/><path d="M24 34h20"/><circle cx="47" cy="34" r="3"/><path d="M14 46h20"/>`
+  },
+  {
+    id: "cipher",
+    name: "CIPHER",
+    tag: "Solo memory",
+    summary:
+      "Watch the machine flash a growing code across four pads, then echo it back before the fuse burns out.",
+    accent: "#5cf5ff",
+    glyph: `<path d="M28 6l22 12v20L28 50 6 38V18z"/><circle cx="28" cy="28" r="5"/><path d="M28 6v13M28 37v13M6 18l19 10M50 18l-19 10"/>`
   }
 ];
 

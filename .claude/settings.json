@@ -15,7 +15,9 @@
       "Bash(node -e 'const esbuild=require\\('\\\\''esbuild'\\\\''\\); esbuild.build\\({entryPoints:['\\\\''api/leaderboard.ts'\\\\''],bundle:true,format:'\\\\''esm'\\\\'',platform:'\\\\''node'\\\\'',packages:'\\\\''external'\\\\'',outfile:'\\\\''__TRACKED_VAR__/lb.mjs'\\\\''}\\).then\\(\\(\\)=>console.log\\('\\\\''build ok'\\\\''\\)\\).catch\\(e=>{console.error\\(e\\);process.exit\\(1\\)}\\)')",
       "Bash(node _esmcheck.mjs)",
       "Bash(grep -iE \"\\\\.\\(tsx|jsx|ts|js|html\\)$\")",
-      "Bash(pkill -f \"vite.*5183\")"
+      "Bash(pkill -f \"vite.*5183\")",
+      "Bash(grep -rioE \"\\(cipher|deduc|guess|word|code|logic\\)[a-z ]{0,40}\" cipher/index.html)",
+      "Bash(pnpm --filter cipher build)"
     ]
   }
 }

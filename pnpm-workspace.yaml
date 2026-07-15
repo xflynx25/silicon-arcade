@@ -7,3 +7,4 @@ packages:
   - "nova"
   - "lattice"
   - "salvo"
+  - "cipher"

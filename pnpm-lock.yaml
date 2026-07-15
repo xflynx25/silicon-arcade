@@ -22,6 +22,15 @@ importers:
         specifier: ^5.3.5
         version: 5.4.21(@types/node@20.19.43)
 
+  cipher:
+    devDependencies:
+      typescript:
+        specifier: ^5.5.4
+        version: 5.9.3
+      vite:
+        specifier: ^5.3.5
+        version: 5.4.21(@types/node@20.19.43)
+
   echo:
     devDependencies:
       typescript:
