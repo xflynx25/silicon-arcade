@@ -1,6 +1,6 @@
 # Silicon Arcade — Local 2-Player Games
 
-Eight local 2-player keyboard games in one workspace.
+Ten local 2-player keyboard games in one workspace.
 
 ## Install
 
@@ -19,6 +19,8 @@ pnpm dev:vortex
 pnpm dev:nova
 pnpm dev:lattice
 pnpm dev:salvo
+pnpm dev:ghost
+pnpm dev:relay
 ```
 
 ## Leaderboards (optional, no database)
@@ -28,7 +30,8 @@ Postgres/Neon. Two serverless functions live at `/api/leaderboard` (`GET` lists 
 top 20, `POST` submits `{ game, board, name, score }`). No auth; you just type
 initials (arcade-style) when you make the board. **TETHER** was wired first
 (metric: seconds survived, one board per difficulty); **CIPHER**, **NOVA**
-(Flares/Rings), **RICOCHET** Rally, and **ECHO** (Core/Grid) are also wired.
+(Flares/Rings), **RICOCHET** Rally, **ECHO** (Core/Grid), **GHOST**
+(Chase/Haunt), and **RELAY** (Escort/Defuse) are also wired.
 
 **The whole feature is optional and self-disabling.** If no leaderboard storage is
 configured, the games run exactly as before with **no leaderboard UI at all** — no
@@ -65,6 +68,8 @@ only turn leaderboards on when you want them.
 | **NOVA** | Orbital duel / co-op | Comets orbit a star's gravity — slingshot for speed; ram to shatter your rival, or team up across three modes |
 | **LATTICE** | Territory duel | Ride the grid leaving a light trail — loop back into your land to claim what you enclosed; cut your rival's line to send them home |
 | **SALVO** | Tank duel | Steer armored tanks around cover and fire ricocheting shells — bank shots off the walls to catch your rival; five arenas, Variety mode shuffles settings each round |
+| **GHOST** | Time duel | Every lap records a ghost of your past self that replays deterministically — carry a relay orb together (Chase), dodge a growing crowd of your own history (Haunt), or fight your echoes (Duel) |
+| **RELAY** | Asymmetric co-op | One keyboard, two roles — the blind Pilot drives through a fog bubble while the sighted Navigator can't move and can only point the way with pings |
 
 ## Controls
 
@@ -139,3 +144,44 @@ Shared across all games:
 - On title screen: `1` arena · `2` ricochet · `3` powerups · `4` shells · `5` fire rate · `6` round ammo · `7` play style, then `Enter` to start
 - Five arenas (Open, Pillars, Cross, Maze, Bunker); ricochet presets Standard / Ricochet+ / Infinite
 - First to **3 rounds** wins; `R` for an instant rematch
+
+### GHOST specifics
+
+- The one game that touches **time**: every 12s lap is recorded into a per-tick
+  buffer, then replayed as a translucent ghost of your past self — pure
+  playback off the shared fixed-timestep loop, so it can never desync from what
+  you actually did
+- On title screen: `1` **Chase** · `2` **Haunt** · `3` **Duel**, then `Enter` to start
+- Any time: `[` / `]` adjust **Echo Depth** (1–5 live ghosts per player)
+- **Chase** — co-op relay; carry the glowing orb to the goal — the more hands on
+  it (yours, your partner's, or a past-lap ghost still holding Grab) the faster
+  it moves. Bank laps before the match clock runs out; leaderboard tracks legs completed
+- **Haunt** — competitive; collect drifting sparks for points, but touching
+  **any** ghost (yours or your rival's) drops your streak and stuns you
+  briefly. Higher score after 5 laps wins; leaderboard tracks the winning score
+- **Duel** — competitive; `Left Shift`/`Right Shift` **strike**, `Space`/`Enter`
+  **parry**. Every lap your run freezes into a ghost that keeps striking on the
+  exact ticks it originally did (watch for the telegraph flash). Getting hit —
+  by your rival or any ghost — loses the round; best of 5 wins the match (no
+  leaderboard for Duel)
+
+### RELAY specifics
+
+- The one **asymmetric** game — P1 and P2 see and control different things, and
+  must talk out loud to win. **Pilot** (P1, warm) drives but only sees a small
+  fog bubble around them; **Navigator** (P2, cool) sees everything but has no
+  movement control
+- On title screen: `1` **Escort** · `2` **Defuse**, then `Enter` to start
+- **Escort** — descend through a blind hazard maze (moving mines, timed gates)
+  to the exit before the timer runs out. Pilot: `WASD` move, `Space` brake.
+  Navigator: arrows aim a cursor over the full map, `Right Shift` drops a ping,
+  `Enter` cycles ping type (go-here waypoint / danger arrow / wait) — only two
+  pings can be live at once, so choose what's worth marking and say the rest
+  out loud. Waypoints "lock" with a chime (and a small time bonus) when the
+  Pilot reaches them. Any time: `[` / `]` adjust **Fog Radius**. Score = depth
+  reached
+- **Defuse** — a symbol appears on the Pilot's panel; only the Navigator's
+  manual says what input sequence it means, and the manual doesn't say which
+  entry is active — the two of you have to describe and look it up. Pilot:
+  `WASD` enters arrows, `Left Shift` commits, `Space` clears. Three wrong or
+  late entries ends the run. Score = panels defused

@@ -15,6 +15,8 @@
     "dev:lattice": "pnpm --filter lattice dev",
     "dev:salvo": "pnpm --filter salvo dev",
     "dev:cipher": "pnpm --filter cipher dev",
+    "dev:relay": "pnpm --filter relay dev",
+    "dev:ghost": "pnpm --filter ghost dev",
     "build": "pnpm -r build && tsc --noEmit && vite build && node scripts/assemble-dist.mjs"
   },
   "dependencies": {

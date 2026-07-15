@@ -97,6 +97,24 @@ const GAMES: Game[] = [
       "Watch the machine flash a growing code across four pads, then echo it back before the fuse burns out.",
     accent: "#5cf5ff",
     glyph: `<path d="M28 6l22 12v20L28 50 6 38V18z"/><circle cx="28" cy="28" r="5"/><path d="M28 6v13M28 37v13M6 18l19 10M50 18l-19 10"/>`
+  },
+  {
+    id: "ghost",
+    name: "GHOST",
+    tag: "Time duel",
+    summary:
+      "Every lap is recorded and replayed as a ghost of your past self — race, dodge, or duel a growing crowd of your own history.",
+    accent: "#b48cff",
+    glyph: `<circle cx="14" cy="36" r="5" opacity="0.3"/><circle cx="25" cy="27" r="5" opacity="0.6"/><circle cx="38" cy="18" r="6"/><path d="M38 18v-8M38 18h6"/>`
+  },
+  {
+    id: "relay",
+    name: "RELAY",
+    tag: "Asymmetric co-op",
+    summary:
+      "One keyboard, two roles: the Pilot drives blind through a fog bubble while the Navigator sees everything and can only point the way.",
+    accent: "#ff7a5c",
+    glyph: `<circle cx="20" cy="28" r="14" opacity="0.35"/><circle cx="20" cy="28" r="5"/><path d="M40 14v10M40 40v-10M40 28h10M30 28h4"/><circle cx="40" cy="28" r="3"/>`
   }
 ];
 
@@ -260,6 +278,28 @@ const LEADERBOARD_GAMES: LeaderboardGame[] = [
       { id: "grid", label: "Grid" }
     ],
     formatScore: (score) => `Wave ${Math.round(score)}`
+  },
+  {
+    id: "ghost",
+    name: "GHOST",
+    accent: "#b48cff",
+    boards: [
+      { id: "chase", label: "Chase" },
+      { id: "haunt", label: "Haunt" }
+    ],
+    formatScore: (score, boardId) =>
+      boardId === "chase" ? `${Math.round(score)} laps` : String(Math.round(score))
+  },
+  {
+    id: "relay",
+    name: "RELAY",
+    accent: "#ff7a5c",
+    boards: [
+      { id: "escort", label: "Escort" },
+      { id: "defuse", label: "Defuse" }
+    ],
+    formatScore: (score, boardId) =>
+      boardId === "escort" ? `Depth ${score.toFixed(1)}m` : `${Math.round(score)} defused`
   }
 ];
 

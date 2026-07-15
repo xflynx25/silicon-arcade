@@ -9,3 +9,5 @@ packages:
   - "lattice"
   - "salvo"
   - "cipher"
+  - "relay"
+  - "ghost"
