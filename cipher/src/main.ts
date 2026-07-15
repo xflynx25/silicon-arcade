@@ -54,9 +54,15 @@ const padCenter = (i: number): { x: number; y: number; r: number } => {
 
 // ----------------------------------------------------------------- audio ----
 let actx: AudioContext | null = null;
-const beep = (freq: number, dur = 0.28, type: OscillatorType = "sine"): void => {
+// Must be called from within a user gesture so the browser unlocks playback —
+// otherwise the first WATCH sequence (which beeps from rAF) stays silent.
+const ensureAudio = (): void => {
   if (!actx) actx = new AudioContext();
   if (actx.state === "suspended") void actx.resume();
+};
+const beep = (freq: number, dur = 0.28, type: OscillatorType = "sine"): void => {
+  ensureAudio();
+  if (!actx) return;
   const t = actx.currentTime;
   const osc = actx.createOscillator();
   const gain = actx.createGain();
@@ -71,7 +77,7 @@ const beep = (freq: number, dur = 0.28, type: OscillatorType = "sine"): void => 
 };
 
 // ------------------------------------------------------------------ state ----
-type Phase = "idle" | "show" | "recall" | "over";
+type Phase = "idle" | "show" | "recall" | "levelup" | "over";
 
 let phase: Phase = "idle";
 let sequence: number[] = [];
@@ -80,6 +86,7 @@ let showTimer = 0; // seconds until the next flash / gap toggle
 let showOn = false; // is a pad currently lit during the show phase
 let recallPos = 0; // how many correct inputs the player has given this round
 let fuse = 1; // 1..0 countdown during recall; hitting 0 ends the run
+let levelTimer = 0; // brief celebration pause between rounds, counted down by dt
 let round = 0;
 let best = Number(localStorage.getItem("cipher-best") || 0);
 let flash = 0; // full-screen flash on error / level-up
@@ -91,6 +98,7 @@ const fuseFor = (len: number): number => 1.6 + len * 0.9; // seconds to echo the
 let fuseTotal = fuseFor(1);
 
 const startGame = (): void => {
+  ensureAudio(); // reached only from a gesture; unlocks the WATCH-phase tones
   sequence = [];
   round = 0;
   phase = "show";
@@ -140,11 +148,8 @@ const press = (pad: number): void => {
     if (recallPos >= sequence.length) {
       flash = 0.4;
       beep(880, 0.14, "triangle");
-      window.setTimeout(nextRound, 480);
-      phase = "show"; // freeze input during the brief celebration
-      showTimer = 0.5;
-      showIndex = 0;
-      showOn = false;
+      phase = "levelup"; // freeze input during the brief celebration
+      levelTimer = 0.48;
     }
   } else {
     flash = 1;
@@ -215,6 +220,9 @@ const update = (dt: number): void => {
       flash = 1;
       gameOver();
     }
+  } else if (phase === "levelup") {
+    levelTimer -= dt;
+    if (levelTimer <= 0) nextRound();
   }
 };
 

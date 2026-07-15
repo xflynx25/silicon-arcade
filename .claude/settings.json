@@ -17,7 +17,8 @@
       "Bash(grep -iE \"\\\\.\\(tsx|jsx|ts|js|html\\)$\")",
       "Bash(pkill -f \"vite.*5183\")",
       "Bash(grep -rioE \"\\(cipher|deduc|guess|word|code|logic\\)[a-z ]{0,40}\" cipher/index.html)",
-      "Bash(pnpm --filter cipher build)"
+      "Bash(pnpm --filter cipher build)",
+      "Bash(echo \"OK exit=$?\")"
     ]
   }
 }
