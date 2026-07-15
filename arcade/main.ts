@@ -95,6 +95,15 @@ const frameHost = document.getElementById("frame-host") as HTMLElement;
 const nowPlaying = document.getElementById("now-playing") as HTMLElement;
 const exitBtn = document.getElementById("exit") as HTMLButtonElement;
 
+const lbOpenBtn = document.getElementById("lb-open") as HTMLButtonElement;
+const lbOverlay = document.getElementById("lb-overlay") as HTMLElement;
+const lbCloseBtn = document.getElementById("lb-close") as HTMLButtonElement;
+const lbGameTabs = document.getElementById("lb-game-tabs") as HTMLElement;
+const lbBoardTabs = document.getElementById("lb-board-tabs") as HTMLElement;
+const lbRows = document.getElementById("lb-rows") as HTMLElement;
+const lbEmpty = document.getElementById("lb-empty") as HTMLElement;
+const lbLoading = document.getElementById("lb-loading") as HTMLElement;
+
 let activeFrame: HTMLIFrameElement | null = null;
 
 const boot = (game: Game): void => {
@@ -178,3 +187,138 @@ window.addEventListener("keydown", (e) => {
     quit();
   }
 });
+
+// ---------------------------------------------------------------------------
+// Leaderboards — read-only view of every game's boards, gated on the same
+// /api/leaderboard "enabled" flag the games themselves check. Games opt in by
+// adding an entry here; each board id must match what the game submits under
+// (see e.g. tether/src/game.ts's per-difficulty boards).
+
+type LeaderboardEntry = { name: string; score: number; date: string };
+type BoardDef = { id: string; label: string };
+type LeaderboardGame = { id: string; name: string; accent: string; boards: BoardDef[]; formatScore: (score: number) => string };
+
+const LEADERBOARD_GAMES: LeaderboardGame[] = [
+  {
+    id: "tether",
+    name: "TETHER",
+    accent: "#38f5ff",
+    boards: [
+      { id: "easy", label: "Easy" },
+      { id: "normal", label: "Normal" },
+      { id: "hard", label: "Hard" }
+    ],
+    formatScore: (score) => `${score.toFixed(1)}s`
+  }
+];
+
+let lbActiveGame = LEADERBOARD_GAMES[0];
+let lbActiveBoard = lbActiveGame?.boards[0];
+let lbRequestId = 0;
+
+async function fetchBoard(game: string, board: string): Promise<{ enabled: boolean; entries: LeaderboardEntry[] }> {
+  try {
+    const res = await fetch(`/api/leaderboard?game=${encodeURIComponent(game)}&board=${encodeURIComponent(board)}`, {
+      cache: "no-store"
+    });
+    if (!res.ok) return { enabled: false, entries: [] };
+    const data = await res.json();
+    if (data?.enabled === false) return { enabled: false, entries: [] };
+    return { enabled: true, entries: Array.isArray(data?.entries) ? (data.entries as LeaderboardEntry[]) : [] };
+  } catch {
+    return { enabled: false, entries: [] };
+  }
+}
+
+function renderTabs(host: HTMLElement, items: { id: string; label: string }[], activeId: string, onSelect: (id: string) => void): void {
+  host.replaceChildren();
+  for (const item of items) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = `lb-tab${item.id === activeId ? " active" : ""}`;
+    btn.textContent = item.label;
+    btn.addEventListener("click", () => onSelect(item.id));
+    host.append(btn);
+  }
+}
+
+async function loadLbBoard(): Promise<void> {
+  if (!lbActiveGame || !lbActiveBoard) return;
+  const requestId = ++lbRequestId;
+  lbRows.replaceChildren();
+  lbEmpty.hidden = true;
+  lbLoading.hidden = false;
+
+  const game = lbActiveGame;
+  const board = lbActiveBoard;
+  const { entries } = await fetchBoard(game.id, board.id);
+  if (requestId !== lbRequestId) return; // superseded by a newer tab switch
+
+  lbLoading.hidden = true;
+  if (entries.length === 0) {
+    lbEmpty.hidden = false;
+    return;
+  }
+  for (const [i, entry] of entries.entries()) {
+    const row = document.createElement("tr");
+    const date = new Date(entry.date);
+    const dateLabel = Number.isNaN(date.getTime()) ? "—" : date.toLocaleDateString();
+    row.innerHTML = `<td>${i + 1}</td><td>${entry.name}</td><td>${game.formatScore(entry.score)}</td><td>${dateLabel}</td>`;
+    lbRows.append(row);
+  }
+}
+
+function renderLbTabs(): void {
+  if (!lbActiveGame) return;
+  renderTabs(
+    lbGameTabs,
+    LEADERBOARD_GAMES.map((g) => ({ id: g.id, label: g.name })),
+    lbActiveGame.id,
+    (id) => {
+      const g = LEADERBOARD_GAMES.find((game) => game.id === id);
+      if (!g) return;
+      lbActiveGame = g;
+      lbActiveBoard = g.boards[0];
+      renderLbTabs();
+      loadLbBoard();
+    }
+  );
+  lbBoardTabs.hidden = lbActiveGame.boards.length <= 1;
+  if (lbActiveBoard) {
+    renderTabs(lbBoardTabs, lbActiveGame.boards, lbActiveBoard.id, (id) => {
+      const b = lbActiveGame.boards.find((board) => board.id === id);
+      if (!b) return;
+      lbActiveBoard = b;
+      renderLbTabs();
+      loadLbBoard();
+    });
+  }
+}
+
+function openLeaderboards(): void {
+  lbOverlay.hidden = false;
+  renderLbTabs();
+  loadLbBoard();
+}
+
+function closeLeaderboards(): void {
+  lbOverlay.hidden = true;
+}
+
+lbOpenBtn.addEventListener("click", openLeaderboards);
+lbCloseBtn.addEventListener("click", closeLeaderboards);
+window.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && !lbOverlay.hidden) {
+    e.preventDefault();
+    closeLeaderboards();
+  }
+});
+
+// Only reveal the entry point once we know a Blob store (or the local dev
+// plugin) is actually serving leaderboard data — no store linked means the
+// button never appears, matching the in-game "no leaderboard UI at all" rule.
+if (lbActiveGame && lbActiveBoard) {
+  fetchBoard(lbActiveGame.id, lbActiveBoard.id).then(({ enabled }) => {
+    if (enabled) lbOpenBtn.hidden = false;
+  });
+}

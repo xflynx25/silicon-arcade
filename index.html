@@ -398,6 +398,151 @@
         background: #000;
       }
 
+      /* ---------- leaderboards ---------- */
+      .lb-open {
+        display: flex;
+        margin: 0 auto clamp(28px, 4vh, 48px);
+        align-items: center;
+        gap: 8px;
+        font: inherit;
+        font-size: 13px;
+        font-weight: 700;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: var(--ink);
+        padding: 10px 20px;
+        border-radius: 999px;
+        cursor: pointer;
+        border: 1px solid rgba(255, 214, 90, 0.4);
+        background: rgba(255, 214, 90, 0.1);
+        transition: background 0.2s ease, transform 0.2s ease;
+      }
+
+      .lb-open[hidden] {
+        display: none;
+      }
+
+      .lb-open:hover {
+        background: rgba(255, 214, 90, 0.2);
+        transform: translateY(-2px);
+      }
+
+      .lb-overlay {
+        --accent: #ffd65a;
+        position: fixed;
+        inset: 0;
+        z-index: 50;
+        display: flex;
+        background: rgba(4, 3, 12, 0.7);
+        backdrop-filter: blur(3px);
+      }
+
+      .lb-overlay[hidden] {
+        display: none;
+      }
+
+      .lb-panel {
+        display: flex;
+        flex-direction: column;
+        margin: auto;
+        width: min(620px, 92vw);
+        max-height: 84vh;
+        border-radius: 18px;
+        overflow: hidden;
+        border: 1px solid color-mix(in srgb, var(--accent) 34%, transparent);
+        background: #0a0b18;
+        box-shadow: 0 30px 70px -24px rgba(0, 0, 0, 0.9);
+      }
+
+      #lb-title {
+        font-weight: 800;
+        letter-spacing: 0.16em;
+        color: #fff;
+        text-shadow: 0 0 16px color-mix(in srgb, var(--accent) 60%, transparent);
+      }
+
+      .lb-body {
+        padding: 18px 20px 22px;
+        overflow-y: auto;
+      }
+
+      .lb-tabs {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-bottom: 14px;
+      }
+
+      .lb-subtabs {
+        --accent: #ffd65a;
+      }
+
+      .lb-tab {
+        font: inherit;
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--muted);
+        padding: 7px 14px;
+        border-radius: 999px;
+        cursor: pointer;
+        border: 1px solid rgba(150, 175, 255, 0.16);
+        background: rgba(255, 255, 255, 0.02);
+        transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+      }
+
+      .lb-tab:hover {
+        color: var(--ink);
+      }
+
+      .lb-tab.active {
+        color: #fff;
+        border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+        background: color-mix(in srgb, var(--accent) 16%, transparent);
+      }
+
+      .lb-table-wrap {
+        min-height: 120px;
+      }
+
+      .lb-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 14px;
+      }
+
+      .lb-table th {
+        text-align: left;
+        font-size: 11px;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: var(--muted);
+        padding: 0 10px 8px;
+        border-bottom: 1px solid rgba(150, 175, 255, 0.14);
+      }
+
+      .lb-table td {
+        padding: 7px 10px;
+        border-bottom: 1px solid rgba(150, 175, 255, 0.07);
+      }
+
+      .lb-table tbody tr:first-child td {
+        color: #fff;
+        text-shadow: 0 0 12px color-mix(in srgb, var(--accent) 60%, transparent);
+      }
+
+      .lb-table td:nth-child(3) {
+        font-variant-numeric: tabular-nums;
+      }
+
+      .lb-empty {
+        text-align: center;
+        color: var(--muted);
+        font-size: 13.5px;
+        padding: 30px 0;
+      }
+
       @media (prefers-reduced-motion: reduce) {
         .backdrop::before {
           animation: none;
@@ -423,6 +568,10 @@
         </p>
       </header>
 
+      <button class="lb-open" id="lb-open" type="button" hidden>
+        🏆 <span>Leaderboards</span>
+      </button>
+
       <div id="grid"></div>
 
       <footer>
@@ -438,6 +587,35 @@
         <span class="stage-hint">Press <kbd>Esc</kbd> to quit</span>
       </div>
       <div id="frame-host"></div>
+    </section>
+
+    <section class="lb-overlay" id="lb-overlay" hidden aria-label="Leaderboards">
+      <div class="lb-panel">
+        <div class="stage-bar">
+          <button class="exit" id="lb-close" type="button">◄ Arcade</button>
+          <span id="lb-title">LEADERBOARDS</span>
+          <span class="stage-hint">Press <kbd>Esc</kbd> to close</span>
+        </div>
+        <div class="lb-body">
+          <div class="lb-tabs" id="lb-game-tabs"></div>
+          <div class="lb-tabs lb-subtabs" id="lb-board-tabs"></div>
+          <div class="lb-table-wrap">
+            <table class="lb-table">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Name</th>
+                  <th>Score</th>
+                  <th>Date</th>
+                </tr>
+              </thead>
+              <tbody id="lb-rows"></tbody>
+            </table>
+            <p class="lb-empty" id="lb-empty" hidden>No scores yet — be the first!</p>
+            <p class="lb-empty" id="lb-loading" hidden>Loading…</p>
+          </div>
+        </div>
+      </div>
     </section>
 
     <script type="module" src="/arcade/main.ts"></script>
