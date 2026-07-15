@@ -1,6 +1,22 @@
 import type { InputManager, PlayerInput } from "./input";
 import { ParticleSystem } from "./particles";
 import { AudioSystem } from "./audio";
+import {
+  CONCURRENT_LABELS,
+  DEFAULT_MATCH_CONFIG,
+  DEFAULT_VARIETY_LOCKS,
+  FIRE_CD_LABELS,
+  ROUND_AMMO_LABELS,
+  concurrentShells,
+  fireCooldown,
+  lockGlyph,
+  playStyleLabel,
+  rollUnlockedSettings,
+  roundAmmoPool,
+  type MatchConfig,
+  type PlayStyle,
+  type VarietyLocks
+} from "./config";
 import { clamp, vec, type Vec } from "./vec";
 
 export type GamePhase = "title" | "playing" | "roundEnd" | "matchEnd";
@@ -14,8 +30,6 @@ const REVERSE_SCALE = 0.55;
 
 const SHELL_SPEED = 300;
 const SHELL_R = 4;
-const FIRE_CD = 0.45;
-const MAX_SHELLS = 2;
 const SELF_GRACE = 0.32; // your own shell can't hit you for this long after firing
 
 const WIN_ROUNDS = 3;
@@ -157,6 +171,7 @@ type Tank = {
   boost: number;
   scope: number;
   shield: boolean;
+  ammoLeft: number;
 };
 
 type Shell = {
@@ -194,15 +209,19 @@ const HELP_BODY =
   "Grab glowing pickups:\n" +
   "  »  Rapid fire   ≡  Triple shot   ▲  Speed boost\n" +
   "  ◎  Aim scope    ◈  Shield (blocks one hit)\n\n" +
-  "First to 3 rounds wins.";
+  "First to 3 rounds wins.\n\n" +
+  "Variety mode (default) randomizes unlocked settings each round.\n" +
+  "Shift+digit on the title screen locks a row.";
 
 export const createGame = (width: number, height: number): Game => {
   let w = width;
   let h = height;
   let phase: GamePhase = "title";
-  let mapIdx = 0;
-  let ruleIdx = 0;
-  let powerupsOn = true;
+  let playStyle: PlayStyle = "variety";
+  let titleConfig: MatchConfig = { ...DEFAULT_MATCH_CONFIG };
+  let roundConfig: MatchConfig = { ...DEFAULT_MATCH_CONFIG };
+  let nextRoundConfig: MatchConfig | null = null;
+  let varietyLocks: VarietyLocks = { ...DEFAULT_VARIETY_LOCKS };
   let roundCount = 0;
   let roundTimer = 0;
   let roundWinner: 1 | 2 | 0 | null = null; // 0 = trade / mutual
@@ -230,7 +249,8 @@ export const createGame = (width: number, height: number): Game => {
     multi: 0,
     boost: 0,
     scope: 0,
-    shield: false
+    shield: false,
+    ammoLeft: Infinity
   });
 
   const tanks: Tank[] = [makeTank(1, 205, 0), makeTank(2, 32, Math.PI)];
@@ -242,10 +262,27 @@ export const createGame = (width: number, height: number): Game => {
     h: h - MARGIN * 2
   });
 
-  const currentRule = (): RuleDef => RULES[ruleIdx];
+  const currentRule = (): RuleDef => RULES[roundConfig.ruleIdx];
+
+  const activeMapIdx = (): number =>
+    phase === "title" ? titleConfig.mapIdx : roundConfig.mapIdx;
 
   const buildObstacles = (): void => {
-    obstacles = MAPS[mapIdx].build(arena());
+    obstacles = MAPS[activeMapIdx()].build(arena());
+  };
+
+  const applyRoundConfig = (config: MatchConfig): void => {
+    roundConfig = { ...config };
+    nextRoundConfig = null;
+  };
+
+  const rollNextRound = (): MatchConfig =>
+    playStyle === "variety"
+      ? rollUnlockedSettings(titleConfig, varietyLocks, MAPS.length, RULES.length)
+      : { ...titleConfig };
+
+  const prepareRoundConfig = (): void => {
+    applyRoundConfig(nextRoundConfig ?? rollNextRound());
   };
 
   const clearBuffs = (tank: Tank): void => {
@@ -270,6 +307,7 @@ export const createGame = (width: number, height: number): Game => {
     tank.prevFire = false;
     tank.alive = true;
     tank.spawn = 1.0;
+    tank.ammoLeft = roundAmmoPool(roundConfig.roundAmmoIdx);
     clearBuffs(tank);
   };
 
@@ -291,6 +329,7 @@ export const createGame = (width: number, height: number): Game => {
     matchWinner = null;
     tanks[0].wins = 0;
     tanks[1].wins = 0;
+    prepareRoundConfig();
     resetRound();
   };
 
@@ -348,9 +387,10 @@ export const createGame = (width: number, height: number): Game => {
   };
 
   const fire = (tank: Tank, audio: AudioSystem): void => {
-    const cap = tank.multi > 0 ? MULTI_CAP : MAX_SHELLS;
+    const concurrent = concurrentShells(roundConfig.concurrentIdx);
+    const cap = tank.multi > 0 ? Math.max(concurrent, MULTI_CAP) : concurrent;
     const live = shells.reduce((n, s) => n + (s.owner === tank.id ? 1 : 0), 0);
-    if (tank.cooldown > 0 || live >= cap) {
+    if (tank.cooldown > 0 || live >= cap || tank.ammoLeft <= 0) {
       return;
     }
     if (tank.multi > 0) {
@@ -360,7 +400,11 @@ export const createGame = (width: number, height: number): Game => {
     } else {
       spawnShell(tank, tank.angle);
     }
-    tank.cooldown = tank.rapid > 0 ? FIRE_CD * RAPID_FIRE_SCALE : FIRE_CD;
+    if (Number.isFinite(tank.ammoLeft)) {
+      tank.ammoLeft -= 1;
+    }
+    const baseCd = fireCooldown(roundConfig.fireCdIdx);
+    tank.cooldown = tank.rapid > 0 ? baseCd * RAPID_FIRE_SCALE : baseCd;
     audio.fire();
   };
 
@@ -504,8 +548,71 @@ export const createGame = (width: number, height: number): Game => {
     matchWinner = tanks[0].wins >= WIN_ROUNDS ? 1 : tanks[1].wins >= WIN_ROUNDS ? 2 : null;
     phase = matchWinner !== null ? "matchEnd" : "roundEnd";
     roundTimer = ROUND_PAUSE;
+    if (phase === "roundEnd") {
+      nextRoundConfig = rollNextRound();
+    }
     if (matchWinner !== null) {
       audio.win();
+    }
+  };
+
+  const roundSummary = (config: MatchConfig): string => {
+    const map = MAPS[config.mapIdx].name;
+    const rule = RULES[config.ruleIdx].name;
+    const shells = CONCURRENT_LABELS[config.concurrentIdx];
+    return `${map} · ${rule} · ${shells} shells`;
+  };
+
+  const titleSettingLabel = (
+    locked: boolean,
+    value: string,
+    varietyOnly = true
+  ): string => {
+    if (playStyle === "fixed" || !varietyOnly || locked) {
+      return value;
+    }
+    return "Random";
+  };
+
+  const cycleIdx = (idx: number, len: number): number => (idx + 1) % len;
+
+  const handleTitleInput = (input: InputManager): void => {
+    const shift = input.isHeld("ShiftLeft") || input.isHeld("ShiftRight");
+
+    const toggleLock = (key: keyof VarietyLocks, code: string): boolean => {
+      if (shift && input.consumePress(code)) {
+        varietyLocks[key] = !varietyLocks[key];
+        return true;
+      }
+      return false;
+    };
+
+    if (toggleLock("map", "Digit1")) {
+      buildObstacles();
+      return;
+    }
+    if (toggleLock("ricochet", "Digit2")) return;
+    if (toggleLock("powerups", "Digit3")) return;
+    if (toggleLock("concurrent", "Digit4")) return;
+    if (toggleLock("fireCd", "Digit5")) return;
+    if (toggleLock("roundAmmo", "Digit6")) return;
+    if (shift) return;
+
+    if (input.consumePress("Digit1")) {
+      titleConfig.mapIdx = cycleIdx(titleConfig.mapIdx, MAPS.length);
+      buildObstacles();
+    } else if (input.consumePress("Digit2")) {
+      titleConfig.ruleIdx = cycleIdx(titleConfig.ruleIdx, RULES.length);
+    } else if (input.consumePress("Digit3")) {
+      titleConfig.powerupsOn = !titleConfig.powerupsOn;
+    } else if (input.consumePress("Digit4")) {
+      titleConfig.concurrentIdx = cycleIdx(titleConfig.concurrentIdx, CONCURRENT_LABELS.length);
+    } else if (input.consumePress("Digit5")) {
+      titleConfig.fireCdIdx = cycleIdx(titleConfig.fireCdIdx, FIRE_CD_LABELS.length);
+    } else if (input.consumePress("Digit6")) {
+      titleConfig.roundAmmoIdx = cycleIdx(titleConfig.roundAmmoIdx, ROUND_AMMO_LABELS.length);
+    } else if (input.consumePress("Digit7")) {
+      playStyle = playStyle === "variety" ? "fixed" : "variety";
     }
   };
 
@@ -605,16 +712,7 @@ export const createGame = (width: number, height: number): Game => {
       shake = Math.max(0, shake - dt * 26);
 
       if (phase === "title") {
-        if (input.consumePress("Digit1")) {
-          mapIdx = (mapIdx + 1) % MAPS.length;
-          buildObstacles();
-        }
-        if (input.consumePress("Digit2")) {
-          ruleIdx = (ruleIdx + 1) % RULES.length;
-        }
-        if (input.consumePress("Digit3")) {
-          powerupsOn = !powerupsOn;
-        }
+        handleTitleInput(input);
         return;
       }
 
@@ -630,6 +728,7 @@ export const createGame = (width: number, height: number): Game => {
         if (roundTimer <= 0 && phase === "roundEnd") {
           phase = "playing";
           roundCount += 1;
+          prepareRoundConfig();
           resetRound();
         }
         return;
@@ -639,7 +738,7 @@ export const createGame = (width: number, height: number): Game => {
       updateTank(tanks[1], p2, audio, dt);
 
       // Pickups: spawn on a timer, animate, and hand out on contact.
-      if (powerupsOn) {
+      if (roundConfig.powerupsOn) {
         powerTimer -= dt;
         if (powerTimer <= 0) {
           if (pickups.length < MAX_PICKUPS) {
@@ -921,28 +1020,47 @@ export const createGame = (width: number, height: number): Game => {
     },
 
     getHud(): { left: string; center: string; right: string } {
+      const finiteAmmo = Number.isFinite(roundAmmoPool(roundConfig.roundAmmoIdx));
+      const ammoTag = (tank: Tank): string =>
+        finiteAmmo && phase === "playing" ? ` · ${tank.ammoLeft}` : "";
+
       let center = "";
       if (phase === "playing") {
-        center = `Round ${roundCount}`;
+        center =
+          playStyle === "variety"
+            ? `Round ${roundCount} · ${roundSummary(roundConfig)}`
+            : `Round ${roundCount}`;
       } else if (phase === "roundEnd" && roundWinner !== null) {
-        center = roundWinner === 0 ? "Trade!" : `P${roundWinner} takes the round`;
+        const winnerLine = roundWinner === 0 ? "Trade!" : `P${roundWinner} takes the round`;
+        if (nextRoundConfig !== null) {
+          center = `${winnerLine}  →  ${roundSummary(nextRoundConfig)}`;
+        } else {
+          center = winnerLine;
+        }
       }
       return {
-        left: `P1  ${tanks[0].wins}`,
+        left: `P1  ${tanks[0].wins}${ammoTag(tanks[0])}`,
         center,
-        right: `${tanks[1].wins}  P2`
+        right: `${tanks[1].wins}${ammoTag(tanks[1])}  P2`
       };
     },
 
     getOverlay(helpHeld: boolean): { title: string; body: string; visible: boolean } {
       if (phase === "title") {
-        const rule = currentRule();
+        const rule = RULES[titleConfig.ruleIdx];
+        const lockSuffix = (key: keyof VarietyLocks): string =>
+          playStyle === "variety" ? `  ${lockGlyph(varietyLocks[key])}` : "";
+
         return {
           title: "SALVO",
           body:
-            `1  Arena  ·  ▸ ${MAPS[mapIdx].name} ◂  (${mapIdx + 1}/${MAPS.length})\n` +
-            `2  Ricochet  ·  ▸ ${rule.name} ◂  — ${rule.blurb}\n` +
-            `3  Powerups  ·  ▸ ${powerupsOn ? "On" : "Off"} ◂\n\n` +
+            `7  Play style  ·  ▸ ${playStyleLabel(playStyle)} ◂\n` +
+            `1  Arena  ·  ▸ ${titleSettingLabel(varietyLocks.map, `${MAPS[titleConfig.mapIdx].name} (${titleConfig.mapIdx + 1}/${MAPS.length})`)} ◂${lockSuffix("map")}\n` +
+            `2  Ricochet  ·  ▸ ${titleSettingLabel(varietyLocks.ricochet, rule.name)} ◂  — ${rule.blurb}${lockSuffix("ricochet")}\n` +
+            `3  Powerups  ·  ▸ ${titleSettingLabel(varietyLocks.powerups, titleConfig.powerupsOn ? "On" : "Off")} ◂${lockSuffix("powerups")}\n` +
+            `4  Shells  ·  ▸ ${titleSettingLabel(varietyLocks.concurrent, CONCURRENT_LABELS[titleConfig.concurrentIdx])} ◂${lockSuffix("concurrent")}\n` +
+            `5  Fire rate  ·  ▸ ${titleSettingLabel(varietyLocks.fireCd, FIRE_CD_LABELS[titleConfig.fireCdIdx])} ◂${lockSuffix("fireCd")}\n` +
+            `6  Round ammo  ·  ▸ ${titleSettingLabel(varietyLocks.roundAmmo, ROUND_AMMO_LABELS[titleConfig.roundAmmoIdx])} ◂${lockSuffix("roundAmmo")}\n\n` +
             HELP_BODY +
             "\n\nEnter to start  ·  R to restart  ·  Hold H for help",
           visible: true

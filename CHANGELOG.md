@@ -3,6 +3,7 @@
 ## 2026-07-15
 
 - **SALVO**: fixed shells vanishing mid-flight even on the Infinite ricochet preset — a hidden `shellLife` fuse (4–9s) was killing shells regardless of bounce count. Presets now expire shells only on bounce cap or tank hit. Also fixed obstacle slides counting a bounce every frame when a shell grazed a wall edge.
+- **SALVO**: added ammunition controls on the title screen — concurrent shells (`4`), fire rate (`5`), and per-round ammo pool (`6`, one press = one shot even with triple-shot). **Variety** mode (`7`, default) re-rolls unlocked settings each round; `Shift+digit` locks individual rows so you can e.g. keep powerups on while maps and ricochet rules shuffle. HUD shows the active round config and remaining ammo when the pool is finite.
 
 ## 2026-07-06
 

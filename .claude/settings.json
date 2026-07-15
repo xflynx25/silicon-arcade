@@ -21,7 +21,13 @@
       "Bash(echo \"OK exit=$?\")",
       "Bash(vercel --version)",
       "Bash(vercel whoami *)",
-      "Bash(git fetch *)"
+      "Bash(git fetch *)",
+      "Bash(curl -s https://silicon-arcade-gold.vercel.app/)",
+      "Bash(curl -sI https://silicon-arcade-gold.vercel.app/)",
+      "Bash(curl -s -i \"https://silicon-arcade-gold.vercel.app/api/leaderboard?game=tether&board=normal\")",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" \"https://silicon-arcade-gold.vercel.app/api/leaderboard\")",
+      "Bash(curl -s \"https://silicon-arcade-gold.vercel.app/api/leaderboard?game=!!!&board=x\")",
+      "Bash(curl -s -X POST \"https://silicon-arcade-gold.vercel.app/api/leaderboard\" -H \"Content-Type: application/json\" -d '{}')"
     ]
   }
 }

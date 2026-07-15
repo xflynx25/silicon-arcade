@@ -61,7 +61,7 @@ only turn leaderboards on when you want them.
 | **VORTEX** | Sumo knockout | Charge-dash ships in a shrinking arena — knock your opponent out |
 | **NOVA** | Orbital duel / co-op | Comets orbit a star's gravity — slingshot for speed; ram to shatter your rival, or team up across three modes |
 | **LATTICE** | Territory duel | Ride the grid leaving a light trail — loop back into your land to claim what you enclosed; cut your rival's line to send them home |
-| **SALVO** | Tank duel | Steer armored tanks around cover and fire ricocheting shells — bank shots off the walls to catch your rival; two arenas (Open / Maze) |
+| **SALVO** | Tank duel | Steer armored tanks around cover and fire ricocheting shells — bank shots off the walls to catch your rival; five arenas, Variety mode shuffles settings each round |
 
 ## Controls
 
@@ -128,9 +128,11 @@ Shared across all games:
 ### SALVO specifics
 
 - P1: `W`/`S` drive forward/back, `A`/`D` rotate; P2: `↑`/`↓` drive, `←`/`→` rotate
-- `Left Shift` / `Right Shift` **fire** — up to two shells in flight at once, short cooldown between shots
-- Shells **ricochet** off the arena walls and cover (up to six bounces) before they fade — bank shots around blind corners
+- `Left Shift` / `Right Shift` **fire** — configurable concurrent shells, fire rate, and per-round ammo pool
+- Shells **ricochet** off the arena walls and cover before they fade — bank shots around blind corners
 - Your **own shell can kill you** after a brief muzzle grace, so wild ricochets are a real risk
-- Brief spawn invulnerability (a flicker) each round so nobody eats a point-blank shot on the reset
-- On title screen: `1` **Open** (wide sightlines, light cover) · `2` **Maze** (interior walls, more bank shots), then `Enter` to start
+- Glowing **pickups**: rapid fire, triple shot, speed boost, aim scope, shield
+- **Variety** mode (default) randomizes unlocked settings each round; `Shift+digit` locks a row on the title screen
+- On title screen: `1` arena · `2` ricochet · `3` powerups · `4` shells · `5` fire rate · `6` round ammo · `7` play style, then `Enter` to start
+- Five arenas (Open, Pillars, Cross, Maze, Bunker); ricochet presets Standard / Ricochet+ / Infinite
 - First to **3 rounds** wins; `R` for an instant rematch
