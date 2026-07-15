@@ -1,6 +1,6 @@
 # Silicon Arcade — Local 2-Player Games
 
-Ten local 2-player keyboard games in one workspace.
+Twelve local 2-player keyboard games in one workspace.
 
 ## Install
 
@@ -21,6 +21,7 @@ pnpm dev:lattice
 pnpm dev:salvo
 pnpm dev:ghost
 pnpm dev:relay
+pnpm dev:cadence
 ```
 
 ## Leaderboards (optional, no database)
@@ -31,7 +32,8 @@ top 20, `POST` submits `{ game, board, name, score }`). No auth; you just type
 initials (arcade-style) when you make the board. **TETHER** was wired first
 (metric: seconds survived, one board per difficulty); **CIPHER**, **NOVA**
 (Flares/Rings), **RICOCHET** Rally, **ECHO** (Core/Grid), **GHOST**
-(Chase/Haunt), and **RELAY** (Escort/Defuse) are also wired.
+(Chase/Haunt), **RELAY** (Escort/Defuse), and **CADENCE** (Trade/Clash) are
+also wired.
 
 **The whole feature is optional and self-disabling.** If no leaderboard storage is
 configured, the games run exactly as before with **no leaderboard UI at all** — no
@@ -70,6 +72,7 @@ only turn leaderboards on when you want them.
 | **SALVO** | Tank duel | Steer armored tanks around cover and fire ricocheting shells — bank shots off the walls to catch your rival; five arenas, Variety mode shuffles settings each round |
 | **GHOST** | Time duel | Every lap records a ghost of your past self that replays deterministically — carry a relay orb together (Chase), dodge a growing crowd of your own history (Haunt), or fight your echoes (Duel) |
 | **RELAY** | Asymmetric co-op | One keyboard, two roles — the blind Pilot drives through a fog bubble while the sighted Navigator can't move and can only point the way with pings |
+| **CADENCE** | Rhythm call-and-response | The one game about temporal precision, not aim — a sample-accurate beat clock judges every hit; trade phrases co-op or duel your rival's timing |
 
 ## Controls
 
@@ -185,3 +188,29 @@ Shared across all games:
   entry is active — the two of you have to describe and look it up. Pilot:
   `WASD` enters arrows, `Left Shift` commits, `Space` clears. Three wrong or
   late entries ends the run. Score = panels defused
+
+### CADENCE specifics
+
+- The one game that rewards **temporal precision** instead of spatial twitch —
+  hitting on the beat, not aim or reflex. Judged off `audioCtx.currentTime`
+  through a lookahead scheduler (`clock.ts`), never `requestAnimationFrame` —
+  audio stays sample-accurate regardless of frame rate
+- Movement keys become **lane keys**: P1 `A S D W` (4 lanes) + `Left Shift`
+  accent; P2 arrow keys (4 lanes) + `Right Shift` accent
+- On title screen: `1` **Trade** · `2` **Clash**, then `Enter` to start. `[`/`]`
+  tune **BPM** (60–140). `C` opens latency **Calibrate** — tap along to a bare
+  metronome for 8 beats; the offset is saved and applied to every judgement.
+  Recalibrate any time from the title
+- Every hit lands on a consonant scale degree (C minor pentatonic) — you can
+  never play a wrong *note*, only a wrong *time*. Sustained accuracy unlocks
+  generative music layers (bass → arp → pad); a miss thins the track back down
+- **Trade** — co-op call-and-response: the game lights a short phrase on the
+  acting player's lanes, they perform it, then the other player echoes the
+  same phrase on the next bar. Clean handoffs raise a shared groove meter and
+  lengthen the phrase; a bad handoff costs groove, and it bottoming out ends
+  the run. Score = longest groove sustained, in bars
+- **Clash** — competitive beat battle: notes stream to both lanes, each
+  player scoring their own accuracy over a fixed track. A hit streak charges
+  **Syncopation** — fire it (accent key) to briefly shift your rival's
+  incoming notes off-grid, a fair attack on their *timing*, never their
+  controls. Higher accuracy score when the track ends wins
