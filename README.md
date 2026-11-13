@@ -19,6 +19,7 @@ pnpm dev:vortex
 pnpm dev:nova
 pnpm dev:lattice
 pnpm dev:salvo
+pnpm dev:cipher
 pnpm dev:ghost
 pnpm dev:relay
 pnpm dev:cadence
